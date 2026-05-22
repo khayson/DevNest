@@ -1,21 +1,100 @@
 package cmd
 
 import (
+	"context"
+	"devnest/pkg/service/dump"
+	"devnest/pkg/service/mail"
 	"devnest/pkg/telemetry"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
 
+// --- Thread-Safe WebSocket Hub ---
+
+// Hub manages all active WebSocket connections with proper synchronization.
+type Hub struct {
+	mu      sync.RWMutex
+	clients map[*websocket.Conn]bool
+}
+
+func NewHub() *Hub {
+	return &Hub{
+		clients: make(map[*websocket.Conn]bool),
+	}
+}
+
+func (h *Hub) Register(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clients[conn] = true
+	log.Printf("[Daemon] New WebSocket client connected (total: %d)", len(h.clients))
+}
+
+func (h *Hub) Unregister(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[conn]; ok {
+		conn.Close()
+		delete(h.clients, conn)
+		log.Printf("[Daemon] WebSocket client disconnected (total: %d)", len(h.clients))
+	}
+}
+
+// Broadcast sends a JSON payload to all connected clients.
+// Drops slow/dead clients automatically.
+func (h *Hub) Broadcast(payload []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		if err := client.WriteMessage(websocket.TextMessage, payload); err != nil {
+			// Schedule removal outside the read lock
+			go h.Unregister(client)
+		}
+	}
+}
+
+// --- Origin Whitelist ---
+
+var allowedOrigins = []string{
+	"http://localhost",
+	"http://127.0.0.1",
+	"https://localhost",
+	"https://127.0.0.1",
+	"tauri://localhost",
+	"http://tauri.localhost",
+	"https://tauri.localhost",
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for local UI
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Allow connections with no origin (CLI tools, Tauri sidecar)
+		}
+		for _, allowed := range allowedOrigins {
+			if strings.HasPrefix(origin, allowed) {
+				return true
+			}
+		}
+		log.Printf("[Daemon] Rejected WebSocket from unauthorized origin: %s", origin)
+		return false
 	},
 }
+
+// --- Global Hub & Stores ---
+
+var hub = NewHub()
 
 // daemonCmd represents the daemon command
 var daemonCmd = &cobra.Command{
@@ -28,11 +107,17 @@ initializes the telemetry poller, and boots configured services.`,
 		log.Println("[Daemon] Booting DevNest Orchestrator...")
 
 		// Step 1: Start WebSocket Server
-		http.HandleFunc("/ws", handleWebSocket)
-		
+		mux := http.NewServeMux()
+		mux.HandleFunc("/ws", handleWebSocket)
+
+		server := &http.Server{
+			Addr:    "127.0.0.1:9090",
+			Handler: mux,
+		}
+
 		go func() {
 			log.Println("[Daemon] WebSocket server listening on 127.0.0.1:9090")
-			if err := http.ListenAndServe("127.0.0.1:9090", nil); err != nil {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("[Daemon] Failed to start WebSocket server: %v", err)
 			}
 		}()
@@ -40,59 +125,82 @@ initializes the telemetry poller, and boots configured services.`,
 		// Step 2: Initialize and Start Telemetry Poller
 		poller := telemetry.NewPoller(2 * time.Second)
 		poller.Start(func(metrics map[string]*telemetry.ProcessMetrics) {
-			// In a real implementation, we broadcast this map to all connected WS clients.
-			broadcastMetrics(metrics)
+			broadcastEvent("telemetry_update", map[string]interface{}{
+				"metrics": metrics,
+			})
 		})
 
-		// Block forever (or wait for OS signals)
-		select {}
+		// Step 3: Boot Embedded Servers
+		mailStore := mail.NewStore(100) // Keep last 100 emails in memory
+		mailServer := mail.NewServer(1025, mailStore, func(email mail.CapturedEmail) {
+			broadcastEvent("mail_captured", map[string]interface{}{
+				"email": email,
+			})
+		})
+		if err := mailServer.Start(); err != nil {
+			log.Printf("[Daemon] Mail server warning: %v", err)
+		}
+
+		dumpStore := dump.NewStore(200) // Keep last 200 dumps in memory
+		dumpServer := dump.NewServer(9912, dumpStore, func(entry dump.CapturedDump) {
+			broadcastEvent("dump_captured", map[string]interface{}{
+				"dump": entry,
+			})
+		})
+		if err := dumpServer.Start(); err != nil {
+			log.Printf("[Daemon] Dump server warning: %v", err)
+		}
+
+		// Step 4: Wait for OS shutdown signal (Graceful Shutdown)
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-quit
+
+		log.Printf("[Daemon] Received %s signal. Shutting down gracefully...", sig)
+
+		// Shutdown order: stop accepting new connections, then stop services
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("[Daemon] HTTP server shutdown error: %v", err)
+		}
+
+		poller.Stop()
+		mailServer.Stop()
+		dumpServer.Stop()
+
+		log.Println("[Daemon] All services stopped. Goodbye.")
 	},
 }
-
-// Connected WebSocket clients
-var clients = make(map[*websocket.Conn]bool)
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("WebSocket upgrade error:", err)
+		log.Println("[Daemon] WebSocket upgrade error:", err)
 		return
 	}
-	defer conn.Close()
 
-	log.Println("[Daemon] New WebSocket client connected")
-	clients[conn] = true
+	hub.Register(conn)
 
+	// Keep connection alive, listen for UI commands
 	for {
-		// Keep connection alive, listen for UI commands
 		_, _, err := conn.ReadMessage()
 		if err != nil {
-			log.Println("[Daemon] WebSocket client disconnected")
-			delete(clients, conn)
+			hub.Unregister(conn)
 			break
 		}
 	}
 }
 
-func broadcastMetrics(metrics map[string]*telemetry.ProcessMetrics) {
-	if len(clients) == 0 {
-		return
-	}
-
-	payload, err := json.Marshal(map[string]interface{}{
-		"event":   "telemetry_update",
-		"metrics": metrics,
-	})
+// broadcastEvent constructs and broadcasts a typed JSON event to all WS clients.
+func broadcastEvent(eventType string, data map[string]interface{}) {
+	data["event"] = eventType
+	payload, err := json.Marshal(data)
 	if err != nil {
 		return
 	}
-
-	for client := range clients {
-		if err := client.WriteMessage(websocket.TextMessage, payload); err != nil {
-			client.Close()
-			delete(clients, client)
-		}
-	}
+	hub.Broadcast(payload)
 }
 
 func init() {

@@ -28,7 +28,7 @@ func NewStore() (*Store, error) {
 	}
 
 	configDir := filepath.Join(homeDir, ".devnest")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return nil, err
 	}
 
@@ -65,7 +65,7 @@ func (s *Store) Load() error {
 	return json.Unmarshal(data, &s.data)
 }
 
-// Save writes the JSON configuration to disk.
+// Save writes the JSON configuration to disk with restricted permissions (owner-only).
 func (s *Store) Save() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -75,7 +75,8 @@ func (s *Store) Save() error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, data, 0644)
+	// 0600 = owner read/write only. Prevents other users from reading project configs.
+	return os.WriteFile(s.filePath, data, 0600)
 }
 
 // GetConfig returns a copy of the current configuration.
@@ -83,4 +84,28 @@ func (s *Store) GetConfig() DevNestConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.data
+}
+
+// SetActivePHP updates the active PHP version and persists it.
+func (s *Store) SetActivePHP(version string) error {
+	s.mu.Lock()
+	s.data.ActivePHPVersion = version
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// RegisterSite adds a domain -> path mapping and persists it.
+func (s *Store) RegisterSite(domain, localPath string) error {
+	s.mu.Lock()
+	s.data.RegisteredSites[domain] = localPath
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// UnregisterSite removes a domain mapping and persists it.
+func (s *Store) UnregisterSite(domain string) error {
+	s.mu.Lock()
+	delete(s.data.RegisteredSites, domain)
+	s.mu.Unlock()
+	return s.Save()
 }

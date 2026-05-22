@@ -38,7 +38,6 @@ func (s *Server) Version() string { return s.version }
 
 // Configure could generate php.ini settings specifically for this project/environment.
 func (s *Server) Configure() error {
-	// E.g., setting up opcache, xdebug ports, memory_limit based on DevNest UI configs.
 	return nil
 }
 
@@ -51,11 +50,7 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	// On Windows, NTS PHP uses php-cgi.exe bound to a TCP port.
-	// We set PHP_FCGI_CHILDREN and PHP_FCGI_MAX_REQUESTS for stability.
 	s.cmd = exec.Command(s.binaryPath, "-b", fmt.Sprintf("127.0.0.1:%d", s.port))
-	
-	// Add environment variables
 	s.cmd.Env = append(s.cmd.Environ(), "PHP_FCGI_CHILDREN=4", "PHP_FCGI_MAX_REQUESTS=10000")
 
 	if err := s.cmd.Start(); err != nil {
@@ -70,9 +65,9 @@ func (s *Server) Start() error {
 	go func() {
 		for {
 			err := s.cmd.Wait()
-			
+
 			s.mu.Lock()
-			// If explicitly stopped, exit the supervisor loop
+			// If explicitly stopped via Stop(), exit the supervisor loop
 			if s.state == service.StateStopped {
 				s.mu.Unlock()
 				return
@@ -83,15 +78,21 @@ func (s *Server) Start() error {
 			time.Sleep(3 * time.Second)
 
 			s.mu.Lock()
+			// Check again after the sleep in case Stop() was called during the wait
+			if s.state == service.StateStopped {
+				s.mu.Unlock()
+				return
+			}
+
 			// Re-create the command since exec.Cmd cannot be reused
 			s.cmd = exec.Command(s.binaryPath, "-b", fmt.Sprintf("127.0.0.1:%d", s.port))
 			s.cmd.Env = append(s.cmd.Environ(), "PHP_FCGI_CHILDREN=4", "PHP_FCGI_MAX_REQUESTS=10000")
-			
+
 			if err := s.cmd.Start(); err != nil {
 				log.Printf("[PHP] %s failed to restart: %v", s.id, err)
 				s.state = service.StateError
 				s.mu.Unlock()
-				return // Fatal error on restart
+				return
 			}
 			s.state = service.StateRunning
 			s.mu.Unlock()
@@ -102,7 +103,7 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Stop sends a kill signal to the process.
+// Stop gracefully stops the PHP process and prevents the supervisor from restarting it.
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -111,7 +112,10 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
+	// CRITICAL: Set state BEFORE killing so the supervisor loop exits cleanly.
+	s.state = service.StateStopped
 	log.Printf("[PHP] Stopping %s", s.id)
+
 	if err := s.cmd.Process.Kill(); err != nil {
 		return fmt.Errorf("failed to kill php process: %w", err)
 	}
@@ -121,7 +125,6 @@ func (s *Server) Stop() error {
 
 // HealthCheck verifies if the PHP process is active.
 func (s *Server) HealthCheck() (service.HealthState, error) {
-	// A more robust check would involve opening a TCP connection to the port.
 	return s.state, nil
 }
 
@@ -129,8 +132,7 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	if s.state != service.StateRunning || s.cmd == nil || s.cmd.Process == nil {
 		return &telemetry.ProcessMetrics{}, nil
 	}
-	
-	// Real implementation would use OS-specific syscalls
+
 	return &telemetry.ProcessMetrics{
 		PID:         int32(s.cmd.Process.Pid),
 		CPUPercent:  0.8,

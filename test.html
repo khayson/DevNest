@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DevNest Backend Test</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #00ff00; padding: 20px; }
+        #logs { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h2>DevNest Telemetry WebSocket Test</h2>
+    <div id="status" style="color: yellow;">Connecting to ws://127.0.0.1:9090/ws...</div>
+    <hr>
+    <div id="logs"></div>
+
+    <script>
+        const ws = new WebSocket("ws://127.0.0.1:9090/ws");
+        
+        ws.onopen = function() {
+            document.getElementById("status").innerText = "CONNECTED!";
+            document.getElementById("status").style.color = "lime";
+        };
+        
+        ws.onmessage = function(event) {
+            const logs = document.getElementById("logs");
+            // Only keep last 10 messages so it doesn't flood
+            const msg = "Received: " + event.data + "\n";
+            logs.innerText = msg + logs.innerText.substring(0, 2000);
+        };
+        
+        ws.onerror = function(err) {
+            document.getElementById("status").innerText = "ERROR - Is daemon running?";
+            document.getElementById("status").style.color = "red";
+        };
+    </script>
+</body>
+</html>

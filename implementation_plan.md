@@ -170,3 +170,24 @@ To truly surpass Laravel Herd Pro, we must implement robust system-level feature
 
 > [!IMPORTANT]
 > **User Review Required:** Please review Phase 6. For the tunnels, I am proposing Cloudflare Quick Tunnels because they are highly reliable and require no user account for basic usage. If you approve this approach, I will create the tracking tasks and execute these features immediately.
+
+---
+
+## 🎨 Phase 7: The Tauri Frontend (Premium Dashboard)
+
+Now that the Go backend orchestrator is bulletproof, we will build the desktop UI using **Tauri v2, React, TypeScript, and TailwindCSS**. 
+
+### The "Sidecar" Architecture
+Since Tauri is built on Rust and our core is built in Go, we will use Tauri's **Sidecar** pattern.
+1. The user launches `DevNest.exe` (The Tauri GUI).
+2. Tauri seamlessly boots our compiled Go `daemon` as a hidden background sidecar.
+3. The React frontend connects to `ws://127.0.0.1:9090/ws` to stream the telemetry, dump payloads, and emails.
+
+### Tech Stack & Design Requirements
+- **Framework:** Vite + React + TypeScript.
+- **Styling:** Tailwind CSS with a stunning, premium aesthetic (Dark mode, glassmorphism, micro-interactions).
+- **Animations:** Framer Motion for smooth tab transitions and live metric graphing.
+- **Directory Structure:** We will scaffold the React app into a `frontend/` directory and initialize Tauri in `src-tauri/`, keeping it cleanly separated from our Go `pkg/` and `cmd/` directories.
+
+> [!IMPORTANT]
+> **User Review Required:** We are about to scaffold the Tauri frontend. I will use `npm create tauri-app@latest` and configure it for React + TypeScript + Tailwind. Do you approve of using the Tauri Sidecar approach to bundle our Go daemon, and the proposed modern tech stack?

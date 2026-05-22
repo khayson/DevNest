@@ -9,45 +9,88 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
+
+// CapturedDump represents an intercepted dump() payload.
+type CapturedDump struct {
+	ID        string `json:"id"`
+	Payload   string `json:"payload"`
+	Size      int    `json:"size"`
+	Source    string `json:"source"` // Remote address of the sender
+	Timestamp string `json:"timestamp"`
+}
+
+// Store holds captured dumps in a circular buffer.
+type Store struct {
+	mu       sync.RWMutex
+	dumps    []CapturedDump
+	maxSize  int
+	sequence int
+}
+
+// NewStore creates an in-memory store for captured dumps.
+func NewStore(maxSize int) *Store {
+	return &Store{
+		dumps:   make([]CapturedDump, 0, maxSize),
+		maxSize: maxSize,
+	}
+}
+
+// Add inserts a captured dump, evicting the oldest if at capacity.
+func (s *Store) Add(entry CapturedDump) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.dumps) >= s.maxSize {
+		s.dumps = s.dumps[1:]
+	}
+	s.dumps = append(s.dumps, entry)
+}
+
+// GetAll returns a copy of all stored dumps.
+func (s *Store) GetAll() []CapturedDump {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]CapturedDump, len(s.dumps))
+	copy(result, s.dumps)
+	return result
+}
 
 // Server implements an embedded TCP dump server compatible with Symfony Var-Dumper.
 type Server struct {
-	port     int
-	listener net.Listener
-	wg       sync.WaitGroup
-	quit     chan struct{}
-	state    service.HealthState
+	port      int
+	listener  net.Listener
+	wg        sync.WaitGroup
+	quit      chan struct{}
+	state     service.HealthState
+	store     *Store
+	onCapture func(CapturedDump) // Callback to broadcast via WebSocket
 }
 
 // NewServer creates a new Dump server listening on the specified port (typically 9912).
-func NewServer(port int) *Server {
+func NewServer(port int, store *Store, onCapture func(CapturedDump)) *Server {
 	return &Server{
-		port:  port,
-		quit:  make(chan struct{}),
-		state: service.StateStopped,
+		port:      port,
+		quit:      make(chan struct{}),
+		state:     service.StateStopped,
+		store:     store,
+		onCapture: onCapture,
 	}
 }
 
 // ID returns the unique service identifier.
-func (s *Server) ID() string {
-	return "embedded-dump-server"
-}
+func (s *Server) ID() string { return "embedded-dump-server" }
 
 // Name returns the display name.
-func (s *Server) Name() string {
-	return "Dump Server"
-}
+func (s *Server) Name() string { return "Dump Server" }
 
 // Version returns the current version.
-func (s *Server) Version() string {
-	return "1.0.0"
-}
+func (s *Server) Version() string { return "1.0.0" }
 
 // Configure is a no-op for the embedded dump server.
-func (s *Server) Configure() error {
-	return nil
-}
+func (s *Server) Configure() error { return nil }
 
 // Start opens the TCP socket and begins listening for payload dumps.
 func (s *Server) Start() error {
@@ -86,8 +129,6 @@ func (s *Server) HealthCheck() (service.HealthState, error) {
 }
 
 // GetMetrics returns basic metrics for the embedded server.
-// Since it's embedded in the Go process, returning OS metrics specific to it
-// is approximated.
 func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	return &telemetry.ProcessMetrics{}, nil
 }
@@ -100,7 +141,6 @@ func (s *Server) serve() {
 		if err != nil {
 			select {
 			case <-s.quit:
-				// Expected error during shutdown
 				return
 			default:
 				log.Printf("[Dump Server] Accept error: %v", err)
@@ -113,29 +153,48 @@ func (s *Server) serve() {
 	}
 }
 
-// handleConnection reads the incoming payload payload.
+// handleConnection reads the incoming dump payload.
 func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	// Symfony Var-Dumper sends data over TCP. We read everything until EOF.
+	remoteAddr := conn.RemoteAddr().String()
+
 	var buffer bytes.Buffer
 	scanner := bufio.NewScanner(conn)
-	// Var-Dumper payloads can be large, we might need a custom split func or just read all.
-	// For now, scan until EOF.
+	// Increase buffer size for large Var-Dumper payloads (up to 1MB)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
 	for scanner.Scan() {
 		buffer.Write(scanner.Bytes())
 		buffer.WriteString("\n")
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("[Dump Server] Read error: %v", err)
+		log.Printf("[Dump Server] Read error from %s: %v", remoteAddr, err)
 		return
 	}
 
-	payload := buffer.Bytes()
+	payload := buffer.String()
 	if len(payload) > 0 {
-		// TODO: Parse the encoded format, extract HTML/CLI version, and forward via WebSockets
-		log.Printf("[Dump Server] Received %d bytes of payload", len(payload))
+		s.store.mu.Lock()
+		s.store.sequence++
+		dumpID := fmt.Sprintf("DUMP-%06d", s.store.sequence)
+		s.store.mu.Unlock()
+
+		captured := CapturedDump{
+			ID:        dumpID,
+			Payload:   payload,
+			Size:      len(payload),
+			Source:    remoteAddr,
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+
+		s.store.Add(captured)
+		log.Printf("[Dump Server] %s: Received %d bytes from %s", dumpID, captured.Size, remoteAddr)
+
+		if s.onCapture != nil {
+			s.onCapture(captured)
+		}
 	}
 }

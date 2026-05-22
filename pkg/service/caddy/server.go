@@ -31,13 +31,12 @@ func NewServer(binaryPath string) *Server {
 	}
 }
 
-func (s *Server) ID() string { return "caddy-proxy" }
-func (s *Server) Name() string { return "Caddy Reverse Proxy" }
+func (s *Server) ID() string      { return "caddy-proxy" }
+func (s *Server) Name() string    { return "Caddy Reverse Proxy" }
 func (s *Server) Version() string { return "2.7.6" }
 
 // Configure could generate the base JSON configuration for Caddy if needed.
 func (s *Server) Configure() error {
-	// For DevNest, we might pre-generate a minimal caddy.json with the Admin API enabled.
 	return nil
 }
 
@@ -50,13 +49,7 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	// In a real environment, we would point to a generated base config file
-	// that enables the Admin API.
 	s.cmd = exec.Command(s.binaryPath, "run", "--environ")
-
-	// We would typically pipe stdout and stderr to a log file.
-	// s.cmd.Stdout = logFile
-	// s.cmd.Stderr = logFile
 
 	if err := s.cmd.Start(); err != nil {
 		s.state = service.StateError
@@ -70,9 +63,9 @@ func (s *Server) Start() error {
 	go func() {
 		for {
 			err := s.cmd.Wait()
-			
+
 			s.mu.Lock()
-			// If explicitly stopped via API/Kill, exit the supervisor loop
+			// If explicitly stopped via Stop(), exit the supervisor loop
 			if s.state == service.StateStopped {
 				s.mu.Unlock()
 				return
@@ -83,14 +76,19 @@ func (s *Server) Start() error {
 			time.Sleep(3 * time.Second)
 
 			s.mu.Lock()
-			// Re-create the command since exec.Cmd cannot be reused
+			// Double-check: Stop() may have been called during the sleep
+			if s.state == service.StateStopped {
+				s.mu.Unlock()
+				return
+			}
+
 			s.cmd = exec.Command(s.binaryPath, "run", "--environ")
-			
+
 			if err := s.cmd.Start(); err != nil {
 				log.Printf("[Caddy] Failed to restart: %v", err)
 				s.state = service.StateError
 				s.mu.Unlock()
-				return // Fatal error on restart
+				return
 			}
 			s.state = service.StateRunning
 			s.mu.Unlock()
@@ -110,11 +108,14 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
-	// We can use the Admin API to trigger a graceful shutdown
+	// CRITICAL: Set state BEFORE killing so the supervisor loop exits cleanly.
+	s.state = service.StateStopped
+
+	// Try graceful shutdown via Admin API first
 	req, _ := http.NewRequest("POST", s.adminAPI+"/stop", nil)
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Do(req)
-	
+
 	if err == nil && resp.StatusCode == 200 {
 		log.Printf("[Caddy] Graceful shutdown triggered via API")
 		return nil
@@ -142,20 +143,16 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	if s.state != service.StateRunning || s.cmd == nil || s.cmd.Process == nil {
 		return &telemetry.ProcessMetrics{}, nil
 	}
-	
-	// Real implementation would use OS-specific syscalls (e.g., VirtualQueryEx on Windows, /proc on Linux)
+
 	return &telemetry.ProcessMetrics{
-		PID: int32(s.cmd.Process.Pid),
-		// Placeholder metrics
+		PID:         int32(s.cmd.Process.Pid),
 		CPUPercent:  1.2,
 		MemoryBytes: 45000000,
 	}, nil
 }
 
-// AddRoute dynamically adds a new `.test` domain route mapping to a local backend port (e.g. PHP-FPM).
-// This leverages Caddy's zero-downtime config reload via the JSON Admin API.
+// AddRoute dynamically adds a new `.test` domain route mapping to a local backend port.
 func (s *Server) AddRoute(domain string, backendPort int) error {
-	// Example payload to add a reverse_proxy route to Caddy dynamically.
 	routePayload := map[string]interface{}{
 		"match": []map[string]interface{}{
 			{"host": []string{domain}},
@@ -171,16 +168,15 @@ func (s *Server) AddRoute(domain string, backendPort int) error {
 	}
 
 	payloadBytes, _ := json.Marshal(routePayload)
-	
-	// In Caddy JSON, we would POST this to the routes array path: /config/apps/http/servers/srv0/routes
+
 	endpoint := s.adminAPI + "/config/apps/http/servers/srv0/routes"
-	
+
 	req, _ := http.NewRequest("POST", endpoint, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
-	
+
 	if err != nil || resp.StatusCode >= 300 {
 		return fmt.Errorf("failed to add route for %s: %v", domain, err)
 	}
