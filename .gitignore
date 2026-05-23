@@ -21,3 +21,10 @@ devnest.exe
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+
+feature_roadmap.md

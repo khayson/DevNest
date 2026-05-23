@@ -32,11 +32,3 @@ type Service interface {
 	// GetMetrics retrieves real-time OS metrics for the service process
 	GetMetrics() (*telemetry.ProcessMetrics, error)
 }
-
-// Manager orchestrates the lifecycle of all registered services.
-type Manager interface {
-	Register(svc Service) error
-	StartAll() error
-	StopAll() error
-	GetService(id string) (Service, error)
-}

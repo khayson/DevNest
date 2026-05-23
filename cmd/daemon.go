@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"devnest/pkg/service"
+	"devnest/pkg/service/dns"
 	"devnest/pkg/service/dump"
 	"devnest/pkg/service/mail"
 	"devnest/pkg/telemetry"
@@ -132,26 +134,33 @@ initializes the telemetry poller, and boots configured services.`,
 			})
 		})
 
-		// Step 3: Boot Embedded Servers
-		mailStore := mail.NewStore(100) // Keep last 100 emails in memory
+		// Step 3: Initialize Service Manager & Register Services
+		manager := service.NewManager()
+
+		// Register DNS Resolver (Tier 1)
+		dnsServer := dns.NewServer(53, ".test")
+		manager.Register(dnsServer)
+
+		// Register Email Interceptor
+		mailStore := mail.NewStore(100)
 		mailServer := mail.NewServer(1025, mailStore, func(email mail.CapturedEmail) {
-			broadcastEvent("mail_captured", map[string]interface{}{
-				"email": email,
-			})
+			broadcastEvent("mail_captured", map[string]interface{}{"email": email})
 		})
-		if err := mailServer.Start(); err != nil {
-			log.Printf("[Daemon] Mail server warning: %v", err)
+		manager.Register(mailServer)
+
+		// Register Dump Server
+		dumpStore := dump.NewStore(200)
+		dumpServer := dump.NewServer(9912, dumpStore, func(entry dump.CapturedDump) {
+			broadcastEvent("dump_captured", map[string]interface{}{"dump": entry})
+		})
+		manager.Register(dumpServer)
+
+		// Start all registered services
+		if err := manager.StartAll(); err != nil {
+			log.Fatalf("[Daemon] Failed to start services: %v", err)
 		}
 
-		dumpStore := dump.NewStore(200) // Keep last 200 dumps in memory
-		dumpServer := dump.NewServer(9912, dumpStore, func(entry dump.CapturedDump) {
-			broadcastEvent("dump_captured", map[string]interface{}{
-				"dump": entry,
-			})
-		})
-		if err := dumpServer.Start(); err != nil {
-			log.Printf("[Daemon] Dump server warning: %v", err)
-		}
+		// (Log Aggregator could be added here later once integrated with UI)
 
 		// Step 4: Wait for OS shutdown signal (Graceful Shutdown)
 		quit := make(chan os.Signal, 1)
@@ -160,7 +169,6 @@ initializes the telemetry poller, and boots configured services.`,
 
 		log.Printf("[Daemon] Received %s signal. Shutting down gracefully...", sig)
 
-		// Shutdown order: stop accepting new connections, then stop services
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -169,10 +177,10 @@ initializes the telemetry poller, and boots configured services.`,
 		}
 
 		poller.Stop()
-		mailServer.Stop()
-		dumpServer.Stop()
+		manager.StopAll()
 
 		log.Println("[Daemon] All services stopped. Goodbye.")
+
 	},
 }
 
