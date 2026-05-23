@@ -1,8 +1,8 @@
-package meilisearch
+package minio
 
 import (
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"os"
@@ -11,35 +11,35 @@ import (
 	"time"
 )
 
-// Server represents a managed Meilisearch instance.
+// Server represents a managed MinIO (S3-compatible) instance.
 type Server struct {
 	binaryPath string
 	dataDir    string
 	port       int
+	consolePort int
 	cmd        *exec.Cmd
 	state      service.HealthState
 	mu         sync.Mutex
 }
 
-// NewServer initializes a new Meilisearch supervisor.
-func NewServer(binaryPath, dataDir string, port int) *Server {
+func NewServer(binaryPath, dataDir string, port, consolePort int) *Server {
 	return &Server{
-		binaryPath: binaryPath,
-		dataDir:    dataDir,
-		port:       port,
-		state:      service.StateStopped,
+		binaryPath:  binaryPath,
+		dataDir:     dataDir,
+		port:        port,
+		consolePort: consolePort,
+		state:       service.StateStopped,
 	}
 }
 
-func (s *Server) ID() string      { return "meilisearch" }
-func (s *Server) Name() string    { return "Meilisearch" }
-func (s *Server) Version() string { return "v1.7" }
+func (s *Server) ID() string      { return "minio" }
+func (s *Server) Name() string    { return "MinIO (Local S3)" }
+func (s *Server) Version() string { return "RELEASE.2023" }
 
 func (s *Server) Configure() error {
-	// Ensure data directory exists
 	if _, err := os.Stat(s.dataDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(s.dataDir, 0755); err != nil {
-			return fmt.Errorf("failed to create meilisearch data dir: %w", err)
+			return fmt.Errorf("failed to create minio data dir: %w", err)
 		}
 	}
 	return nil
@@ -57,20 +57,25 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	// meilisearch --db-path ./data --http-addr 127.0.0.1:7700 --env development
-	s.cmd = exec.Command(s.binaryPath, 
-		"--db-path", s.dataDir, 
-		"--http-addr", fmt.Sprintf("127.0.0.1:%d", s.port),
-		"--env", "development",
+	// minio server ./data --address :9000 --console-address :9001
+	s.cmd = exec.Command(s.binaryPath, "server", s.dataDir, 
+		"--address", fmt.Sprintf("127.0.0.1:%d", s.port),
+		"--console-address", fmt.Sprintf("127.0.0.1:%d", s.consolePort),
+	)
+
+	// Set default local credentials
+	s.cmd.Env = append(os.Environ(), 
+		"MINIO_ROOT_USER=sail",
+		"MINIO_ROOT_PASSWORD=password",
 	)
 
 	if err := s.cmd.Start(); err != nil {
 		s.state = service.StateError
-		return fmt.Errorf("failed to start meilisearch: %w", err)
+		return fmt.Errorf("failed to start minio: %w", err)
 	}
 
 	s.state = service.StateRunning
-	log.Printf("[Meilisearch] Started (PID: %d) on port %d", s.cmd.Process.Pid, s.port)
+	log.Printf("[MinIO] Started (PID: %d) on port %d", s.cmd.Process.Pid, s.port)
 
 	go func() {
 		for {
@@ -83,7 +88,7 @@ func (s *Server) Start() error {
 			}
 			s.mu.Unlock()
 
-			log.Printf("[Meilisearch] crashed/exited (Error: %v). Restarting in 3 seconds...", err)
+			log.Printf("[MinIO] crashed/exited (Error: %v). Restarting in 3 seconds...", err)
 			time.Sleep(3 * time.Second)
 
 			s.mu.Lock()
@@ -92,21 +97,24 @@ func (s *Server) Start() error {
 				return
 			}
 
-			s.cmd = exec.Command(s.binaryPath, 
-				"--db-path", s.dataDir, 
-				"--http-addr", fmt.Sprintf("127.0.0.1:%d", s.port),
-				"--env", "development",
+			s.cmd = exec.Command(s.binaryPath, "server", s.dataDir, 
+				"--address", fmt.Sprintf("127.0.0.1:%d", s.port),
+				"--console-address", fmt.Sprintf("127.0.0.1:%d", s.consolePort),
+			)
+			s.cmd.Env = append(os.Environ(), 
+				"MINIO_ROOT_USER=sail",
+				"MINIO_ROOT_PASSWORD=password",
 			)
 
 			if err := s.cmd.Start(); err != nil {
-				log.Printf("[Meilisearch] failed to restart: %v", err)
+				log.Printf("[MinIO] failed to restart: %v", err)
 				s.state = service.StateError
 				s.mu.Unlock()
 				return
 			}
 			s.state = service.StateRunning
 			s.mu.Unlock()
-			log.Printf("[Meilisearch] auto-restarted (New PID: %d)", s.cmd.Process.Pid)
+			log.Printf("[MinIO] auto-restarted (New PID: %d)", s.cmd.Process.Pid)
 		}
 	}()
 
@@ -122,11 +130,10 @@ func (s *Server) Stop() error {
 	}
 
 	s.state = service.StateStopped
-	log.Printf("[Meilisearch] Stopping...")
+	log.Printf("[MinIO] Stopping...")
 
-	// Meilisearch handles SIGINT/SIGTERM gracefully
 	if err := s.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill meilisearch: %w", err)
+		return fmt.Errorf("failed to kill minio: %w", err)
 	}
 
 	return nil
@@ -142,7 +149,7 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	}
 	return &telemetry.ProcessMetrics{
 		PID:         int32(s.cmd.Process.Pid),
-		CPUPercent:  0.8,
-		MemoryBytes: 90000000, 
+		CPUPercent:  0.5,
+		MemoryBytes: 85000000, 
 	}, nil
 }

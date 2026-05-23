@@ -3,8 +3,8 @@ package dump
 import (
 	"bufio"
 	"bytes"
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"net"

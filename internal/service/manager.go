@@ -1,7 +1,7 @@
 package service
 
 import (
-	"devnest/pkg/telemetry"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"sync"

@@ -2,8 +2,8 @@ package caddy
 
 import (
 	"bytes"
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"encoding/json"
 	"fmt"
 	"log"

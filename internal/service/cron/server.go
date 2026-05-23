@@ -1,8 +1,8 @@
-package node
+package cron
 
 import (
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"os/exec"
@@ -11,35 +11,30 @@ import (
 	"time"
 )
 
-// Server represents a managed Node.js process, typically running `npm run dev` (Vite).
+// Server represents a managed Laravel Task Scheduler (`schedule:work` or standard cron daemon alternative)
 type Server struct {
 	id          string
-	binaryPath  string
+	phpBinary   string
 	projectPath string
-	port        int
 	cmd         *exec.Cmd
 	state       service.HealthState
 	mu          sync.Mutex
 }
 
-// NewServer initializes a new Node.js process manager for a specific project.
-func NewServer(id, binaryPath, projectPath string, port int) *Server {
+func NewServer(id, phpBinary, projectPath string) *Server {
 	return &Server{
 		id:          id,
-		binaryPath:  binaryPath,
+		phpBinary:   phpBinary,
 		projectPath: projectPath,
-		port:        port,
 		state:       service.StateStopped,
 	}
 }
 
 func (s *Server) ID() string      { return s.id }
-func (s *Server) Name() string    { return fmt.Sprintf("Node.js (Vite) - %s", filepath.Base(s.projectPath)) }
-func (s *Server) Version() string { return "v20" } // This would be dynamic based on installed version
-
+func (s *Server) Name() string    { return fmt.Sprintf("Cron Scheduler - %s", filepath.Base(s.projectPath)) }
+func (s *Server) Version() string { return "N/A" }
 func (s *Server) Configure() error { return nil }
 
-// Start launches `npm run dev` or the equivalent dev server.
 func (s *Server) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -48,19 +43,18 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	npmPath := filepath.Join(filepath.Dir(s.binaryPath), "npm.cmd") // Assuming Windows for now
-	s.cmd = exec.Command(npmPath, "run", "dev", "--", "--port", fmt.Sprintf("%d", s.port))
+	// In local dev, schedule:work is much easier than configuring actual OS cron
+	s.cmd = exec.Command(s.phpBinary, "artisan", "schedule:work")
 	s.cmd.Dir = s.projectPath
 
 	if err := s.cmd.Start(); err != nil {
 		s.state = service.StateError
-		return fmt.Errorf("failed to start Node.js process %s: %w", s.id, err)
+		return fmt.Errorf("failed to start cron scheduler %s: %w", s.id, err)
 	}
 
 	s.state = service.StateRunning
-	log.Printf("[Node] Started Vite server (PID: %d) on port %d for %s", s.cmd.Process.Pid, s.port, s.projectPath)
+	log.Printf("[Cron] Started scheduler (PID: %d) for %s", s.cmd.Process.Pid, s.projectPath)
 
-	// Auto-healing supervisor loop
 	go func() {
 		for {
 			err := s.cmd.Wait()
@@ -72,7 +66,7 @@ func (s *Server) Start() error {
 			}
 			s.mu.Unlock()
 
-			log.Printf("[Node] %s crashed or exited (Error: %v). Restarting in 3 seconds...", s.id, err)
+			log.Printf("[Cron] %s crashed/exited (Error: %v). Restarting in 3 seconds...", s.id, err)
 			time.Sleep(3 * time.Second)
 
 			s.mu.Lock()
@@ -81,25 +75,24 @@ func (s *Server) Start() error {
 				return
 			}
 
-			s.cmd = exec.Command(npmPath, "run", "dev", "--", "--port", fmt.Sprintf("%d", s.port))
+			s.cmd = exec.Command(s.phpBinary, "artisan", "schedule:work")
 			s.cmd.Dir = s.projectPath
 
 			if err := s.cmd.Start(); err != nil {
-				log.Printf("[Node] %s failed to restart: %v", s.id, err)
+				log.Printf("[Cron] %s failed to restart: %v", s.id, err)
 				s.state = service.StateError
 				s.mu.Unlock()
 				return
 			}
 			s.state = service.StateRunning
 			s.mu.Unlock()
-			log.Printf("[Node] %s auto-restarted (New PID: %d)", s.id, s.cmd.Process.Pid)
+			log.Printf("[Cron] %s auto-restarted (New PID: %d)", s.id, s.cmd.Process.Pid)
 		}
 	}()
 
 	return nil
 }
 
-// Stop gracefully stops the Node.js process.
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,10 +102,10 @@ func (s *Server) Stop() error {
 	}
 
 	s.state = service.StateStopped
-	log.Printf("[Node] Stopping %s", s.id)
+	log.Printf("[Cron] Stopping %s", s.id)
 
 	if err := s.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill Node.js process: %w", err)
+		return fmt.Errorf("failed to kill cron scheduler: %w", err)
 	}
 
 	return nil
@@ -128,7 +121,7 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	}
 	return &telemetry.ProcessMetrics{
 		PID:         int32(s.cmd.Process.Pid),
-		CPUPercent:  1.5,
-		MemoryBytes: 85000000, // Node processes are typically ~85MB idle
+		CPUPercent:  0.1,
+		MemoryBytes: 25000000, 
 	}, nil
 }

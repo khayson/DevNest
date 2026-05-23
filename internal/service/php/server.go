@@ -1,8 +1,8 @@
 package php
 
 import (
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"os/exec"

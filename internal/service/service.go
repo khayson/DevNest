@@ -1,6 +1,6 @@
 package service
 
-import "devnest/pkg/telemetry"
+import "devnest/internal/telemetry"
 
 // HealthState represents the current running state of a service.
 type HealthState string

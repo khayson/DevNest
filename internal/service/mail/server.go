@@ -2,8 +2,8 @@ package mail
 
 import (
 	"bufio"
-	"devnest/pkg/service"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/telemetry"
 	"fmt"
 	"log"
 	"net"

@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"context"
-	"devnest/pkg/service"
-	"devnest/pkg/service/dns"
-	"devnest/pkg/service/dump"
-	"devnest/pkg/service/mail"
-	"devnest/pkg/telemetry"
+	"devnest/internal/service"
+	"devnest/internal/service/dns"
+	"devnest/internal/service/dump"
+	"devnest/internal/service/mail"
+	"devnest/internal/telemetry"
 	"encoding/json"
 	"log"
 	"net/http"
