@@ -1,36 +1,129 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>DevNest Backend Test</title>
+    <title>DevNest Backend Test Suite</title>
     <style>
-        body { font-family: monospace; background: #1e1e1e; color: #00ff00; padding: 20px; }
-        #logs { white-space: pre-wrap; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        h2 { color: #58a6ff; margin-bottom: 10px; }
+        h3 { color: #8b949e; margin: 15px 0 5px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+        .status { padding: 8px 16px; border-radius: 6px; display: inline-block; margin-bottom: 15px; font-weight: bold; }
+        .connected { background: #1b4332; color: #2dd4bf; }
+        .disconnected { background: #3b1219; color: #f87171; }
+        .panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 15px; margin-bottom: 15px; max-height: 250px; overflow-y: auto; }
+        .panel pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; line-height: 1.6; }
+        .email-card { background: #1c2333; border-left: 3px solid #58a6ff; padding: 10px; margin-bottom: 8px; border-radius: 4px; }
+        .email-card .field { color: #8b949e; font-size: 11px; }
+        .email-card .value { color: #e6edf3; }
+        .dump-card { background: #1c2333; border-left: 3px solid #f0883e; padding: 10px; margin-bottom: 8px; border-radius: 4px; }
+        .counter { background: #30363d; color: #58a6ff; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 8px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <h2>DevNest Telemetry WebSocket Test</h2>
-    <div id="status" style="color: yellow;">Connecting to ws://127.0.0.1:9090/ws...</div>
-    <hr>
-    <div id="logs"></div>
+    <h2>🧪 DevNest Backend Test Suite</h2>
+    <div id="status" class="status disconnected">Connecting to ws://127.0.0.1:9090/ws...</div>
+
+    <div class="grid">
+        <div>
+            <h3>📡 Telemetry Stream <span id="telemetry-count" class="counter">0</span></h3>
+            <div class="panel" id="telemetry-panel">
+                <pre id="telemetry-logs">Waiting for data...</pre>
+            </div>
+        </div>
+        <div>
+            <h3>📧 Captured Emails <span id="email-count" class="counter">0</span></h3>
+            <div class="panel" id="email-panel">
+                <div id="email-logs" style="color: #8b949e;">No emails captured yet. Send one with PowerShell.</div>
+            </div>
+        </div>
+    </div>
+
+    <h3>🔍 Captured Dumps <span id="dump-count" class="counter">0</span></h3>
+    <div class="panel" id="dump-panel">
+        <div id="dump-logs" style="color: #8b949e;">No dumps captured yet. Send one with PowerShell.</div>
+    </div>
+
+    <h3>📋 Raw Event Log (last 5)</h3>
+    <div class="panel">
+        <pre id="raw-logs">Waiting for events...</pre>
+    </div>
 
     <script>
+        let telemetryCount = 0, emailCount = 0, dumpCount = 0;
+        let rawMessages = [];
+
         const ws = new WebSocket("ws://127.0.0.1:9090/ws");
-        
+
         ws.onopen = function() {
-            document.getElementById("status").innerText = "CONNECTED!";
-            document.getElementById("status").style.color = "lime";
+            const el = document.getElementById("status");
+            el.innerText = "✅ CONNECTED to DevNest Daemon";
+            el.className = "status connected";
         };
-        
+
+        ws.onerror = function() {
+            const el = document.getElementById("status");
+            el.innerText = "❌ ERROR — Is the daemon running? (./devnest daemon)";
+            el.className = "status disconnected";
+        };
+
+        ws.onclose = function() {
+            const el = document.getElementById("status");
+            el.innerText = "🔌 DISCONNECTED — Daemon stopped";
+            el.className = "status disconnected";
+        };
+
         ws.onmessage = function(event) {
-            const logs = document.getElementById("logs");
-            // Only keep last 10 messages so it doesn't flood
-            const msg = "Received: " + event.data + "\n";
-            logs.innerText = msg + logs.innerText.substring(0, 2000);
-        };
-        
-        ws.onerror = function(err) {
-            document.getElementById("status").innerText = "ERROR - Is daemon running?";
-            document.getElementById("status").style.color = "red";
+            const data = JSON.parse(event.data);
+
+            // Raw log
+            rawMessages.unshift(new Date().toLocaleTimeString() + " → " + event.data);
+            if (rawMessages.length > 5) rawMessages.pop();
+            document.getElementById("raw-logs").innerText = rawMessages.join("\n\n");
+
+            switch (data.event) {
+                case "telemetry_update":
+                    telemetryCount++;
+                    document.getElementById("telemetry-count").innerText = telemetryCount;
+                    const metrics = data.metrics;
+                    let output = "";
+                    for (const [name, m] of Object.entries(metrics)) {
+                        output += `▸ ${name}\n  PID: ${m.pid}  CPU: ${m.cpu_percent}%  RAM: ${(m.memory_bytes / 1048576).toFixed(1)}MB\n\n`;
+                    }
+                    document.getElementById("telemetry-logs").innerText = output;
+                    break;
+
+                case "mail_captured":
+                    emailCount++;
+                    document.getElementById("email-count").innerText = emailCount;
+                    const email = data.email;
+                    const emailHtml = `
+                        <div class="email-card">
+                            <div><span class="field">ID:</span> <span class="value">${email.id}</span></div>
+                            <div><span class="field">From:</span> <span class="value">${email.from}</span></div>
+                            <div><span class="field">To:</span> <span class="value">${email.to}</span></div>
+                            <div><span class="field">Subject:</span> <span class="value" style="color:#58a6ff;">${email.subject}</span></div>
+                            <div><span class="field">Size:</span> <span class="value">${email.size} bytes</span></div>
+                            <div><span class="field">Time:</span> <span class="value">${email.timestamp}</span></div>
+                        </div>`;
+                    document.getElementById("email-logs").innerHTML = emailHtml + document.getElementById("email-logs").innerHTML;
+                    break;
+
+                case "dump_captured":
+                    dumpCount++;
+                    document.getElementById("dump-count").innerText = dumpCount;
+                    const dump = data.dump;
+                    const dumpHtml = `
+                        <div class="dump-card">
+                            <div><span class="field">ID:</span> <span class="value">${dump.id}</span></div>
+                            <div><span class="field">Source:</span> <span class="value">${dump.source}</span></div>
+                            <div><span class="field">Size:</span> <span class="value">${dump.size} bytes</span></div>
+                            <div><span class="field">Payload:</span> <pre class="value" style="margin-top:4px;color:#f0883e;">${dump.payload}</pre></div>
+                        </div>`;
+                    document.getElementById("dump-logs").innerHTML = dumpHtml + document.getElementById("dump-logs").innerHTML;
+                    break;
+            }
         };
     </script>
 </body>

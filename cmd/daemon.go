@@ -79,8 +79,10 @@ var allowedOrigins = []string{
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true // Allow connections with no origin (CLI tools, Tauri sidecar)
+		// Allow connections with no origin (CLI tools, Tauri sidecar)
+		// or "null" origin (file:// pages used for local testing)
+		if origin == "" || origin == "null" {
+			return true
 		}
 		for _, allowed := range allowedOrigins {
 			if strings.HasPrefix(origin, allowed) {
