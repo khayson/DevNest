@@ -88,6 +88,10 @@ func (s *Server) Version() string { return "1.0.0" }
 func (s *Server) Configure() error { return nil }
 
 func (s *Server) Start() error {
+	if s.state == service.StateRunning {
+		return nil
+	}
+	s.quit = make(chan struct{})
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {

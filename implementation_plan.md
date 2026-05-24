@@ -182,26 +182,121 @@ We implemented an extensive suite of background services:
 
 ---
 
-## 🎨 Phase 8: The Tauri Frontend (Premium Dashboard)
+## 🎨 Phase 8: The Tauri Frontend (Execution Plan)
 
-Now that the Go backend orchestrator is bulletproof, we will build the desktop UI using **Tauri v2, React, TypeScript, and TailwindCSS**. 
+Now that the scaffolding and FSD folder structure are ready, we will build the UI.
 
-### The "Sidecar" Architecture
-Since Tauri is built on Rust and our core is built in Go, we will use Tauri's **Sidecar** pattern.
-1. The user launches `DevNest.exe` (The Tauri GUI).
-2. Tauri seamlessly boots our compiled Go `daemon` as a hidden background sidecar.
-3. The React frontend connects to `ws://127.0.0.1:9090/ws` to stream the telemetry, dump payloads, and emails.
+### Step 1: Design System & Theming
+- Configure **TailwindCSS** with a custom DevNest theme (deep dark slate, vivid purple/blue accents).
+- Initialize **Shadcn UI** (Button, Input, Card, Table, Badge, ScrollArea).
+- Set up **Framer Motion** for micro-interactions.
 
-### 🌟 Killer Feature: Embedded SQLite Browser
-Since **Laravel 11 / 13.x defaults to SQLite**, DevNest will include a built-in visual database browser directly in the Tauri UI. 
-- You won't need to download DB Browser for SQLite or TablePlus.
-- Click a project -> View Tables -> Run Queries -> Edit Rows instantly.
-- One-click `php artisan migrate:fresh --seed` buttons for rapid local resetting.
+### Step 2: Global State & WebSocket Client
+- Create a **Zustand** store (`useTelemetryStore`, `useServiceStore`, `useMailStore`).
+- Implement the WebSocket client in `src/shared/api/ws.ts` to connect to our Go daemon (`ws://127.0.0.1:9090/ws`) and dispatch events to Zustand.
 
-### Tech Stack & Design Requirements
-- **Framework:** Vite + React + TypeScript.
-- **Styling:** Tailwind CSS with a stunning, premium aesthetic (Dark mode, glassmorphism, micro-interactions).
-- **Animations:** Framer Motion for smooth tab transitions and live metric graphing.
+### Step 3: Layout (The Shell)
+- **Sidebar:** Navigation links (Dashboard, Databases, Mail, Logs, Settings).
+- **Header:** Global controls (Start All, Stop All), Daemon connection status indicator.
 
+### Step 4: Core Views (The Enterprise Features)
+- `[ ]` **Databases View:** Toggles for MySQL, PostgreSQL, Redis with dynamic port and status displays.
+# Laravel Herd UI/UX Redesign Plan (Settings Window Overhaul)
+
+The goal is to completely match the **Laravel Herd** Windows desktop application UI/UX. We are moving away from the compact tray-flyout layout and restoring the full **Settings Window** layout, which features a left sidebar for navigation and page-specific content tabs on the right.
+
+## User Review Required
 > [!IMPORTANT]
-> **User Review Required:** This represents the final feature breakdown! We have completed all backend work (and I just fixed the `go vet` import errors in MinIO and Meilisearch). Are you ready for me to scaffold the Tauri frontend using `npx create-tauri-app`, or is there anything else you'd like to add to this roadmap before we move to the UI?
+> - We will revert `tauri.conf.json` to configure a standard resizable desktop window (`960x650` px) with native OS window decorations (minimize/maximize/close) and titlebar.
+> - The layout will feature a two-column design: a light/dark system-styled left sidebar (width: `220px`) and a content area on the right.
+> - We will implement 8 distinct pages matching Herd's settings tabs: **General**, **Sites**, **PHP**, **Node**, **Services**, **Mail**, **Dumps**, and **Logs**.
+> - The application will connect live to the Go backend daemon, displaying live service statuses, intercepted mails, and live variable dumps/logs.
+
+## Proposed Changes
+
+---
+
+### 1. Tauri Configuration
+#### [MODIFY] [tauri.conf.json](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src-tauri/tauri.conf.json)
+- Revert the main window dimensions to `width: 960` and `height: 650`.
+- Enable standard window decorations (`decorations: true`) and make the window resizable (`resizable: true`).
+- Disable window transparency so it acts as a solid, system-native settings panel.
+
+---
+
+### 2. Main App Shell & State Management
+#### [MODIFY] [App.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/App.tsx)
+- Rebuild the core layout as a split-pane settings window.
+- Render the `Sidebar` on the left and the active view on the right.
+- Add page switching state (`activeView`).
+- Maintain the live WebSocket connection to the Go daemon to poll service telemetry, listen for captured mails (`mail_captured`), and capture variable dumps (`dump_captured`).
+
+---
+
+### 3. Sidebar Component
+#### [MODIFY] [Sidebar.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/widgets/Sidebar.tsx)
+- Implement Herd's Windows-native sidebar look:
+  - Gray sidebar background slightly contrasting with the white/dark content pane.
+  - Large, clean vertical navigation tabs with system icons (settings, globe, server, terminal, envelope, database).
+  - Selected tab styled with a premium system accent blue background and white text.
+  - Sidebar items: **General**, **Sites**, **PHP**, **Node**, **Services**, **Mail**, **Dumps**, **Logs**, and **About**.
+
+---
+
+### 4. Tab Content Views
+
+#### [NEW] [General.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/General.tsx)
+- Shows General settings:
+  - Startup behaviors (checkboxes: launch on login, auto-start services).
+  - UI Theme toggle (System, Light, Dark).
+  - Global status indicator: "DevNest is running." with a green indicator.
+  - Large **Start All Services** and **Stop All Services** action buttons.
+
+#### [NEW] [Sites.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Sites.tsx)
+- A clean, spacious tabular list of local websites.
+- Columns: Site Name, Path, URL (clickable link), PHP version pinned (e.g. 8.3), and SSL Lock icon status.
+- Clicking on a row allows securing/unsecuring the site, opening the site folder, or opening in the browser.
+
+#### [MODIFY] [Settings.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Settings.tsx) -> **PHP.tsx**
+- Rename page to `PHP.tsx`.
+- Displays installed/available PHP versions.
+- Toggles to set the default global PHP version.
+- Buttons to "Edit php.ini" or access configuration folders.
+
+#### [NEW] [Node.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Node.tsx)
+- Node Version Manager (nvm) interface.
+- List installed Node versions (e.g., v18.16.0, v20.10.0, v22.2.0) with an active checkmark.
+- Ability to select the system active version or add new versions.
+
+#### [MODIFY] [Dashboard.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Dashboard.tsx) -> **Services.tsx**
+- Replace the grid layout with a flat table matching Herd's Services view.
+- Columns: Service Name (MySQL, PostgreSQL, Redis, MailHog, Caddy), Port, Status, and individual Start / Restart / Stop control buttons.
+
+#### [MODIFY] [Mail.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Mail.tsx)
+- Overhaul to a two-column Mail Interceptor interface:
+  - Left pane: list of captured emails (subject, recipient, timestamp) received via WebSocket.
+  - Right pane: beautiful email preview tab displaying HTML content, plaintext headers, and attachment tabs.
+
+#### [NEW] [Dumps.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Dumps.tsx)
+- Live variable dump console.
+- Lists `dump()` outputs stream live from the backend.
+- Displays file:line information (e.g. `routes/web.php:30`), timestamp, and syntax-highlighted collapsible variable tree.
+
+#### [MODIFY] [Logs.tsx](file:///c:/Users/VICTUS/Desktop/DevNest/frontend/src/pages/Logs.tsx)
+- Dropdown to select service log file (Caddy, PHP, MySQL, System).
+- High-performance tail viewer displaying real-time server output.
+
+---
+
+## Verification Plan
+
+### Automated & Manual Verification
+- Visual comparison against Laravel Herd Windows application style guide and screenshots.
+- Test responsive resizing of the window.
+- Verify live WebSocket integrations (service status changes, intercepting mock mail, streaming variable dump calls).
+
+## User Review Required
+> [!IMPORTANT]
+> **Desktop Native Shift:** Does the plan to wrap the UI in a frameless Tauri window, add a custom titlebar, and wire the buttons to physically control the Go backend address your concerns about the app feeling like a "toy"? 
+> 
+> Once approved, we will immediately boot the app via Tauri natively on your Windows machine, removing the web browser entirely!

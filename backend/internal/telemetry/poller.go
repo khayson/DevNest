@@ -21,7 +21,7 @@ func NewPoller(interval time.Duration) *Poller {
 }
 
 // Start begins the polling loop.
-func (p *Poller) Start(metricCallback func(metrics map[string]*ProcessMetrics)) {
+func (p *Poller) Start(isRunning func(string) bool, metricCallback func(metrics map[string]*ProcessMetrics)) {
 	p.ticker = time.NewTicker(p.interval)
 	
 	go func() {
@@ -29,22 +29,78 @@ func (p *Poller) Start(metricCallback func(metrics map[string]*ProcessMetrics)) 
 		for {
 			select {
 			case <-p.ticker.C:
-				// In a real implementation, we would iterate over all registered services
-				// and call GetMetrics() on each. For now, we simulate this.
-				
-				// Simulated metrics gathering
+				// Simulated metrics gathering based on active service states
 				metricsMap := make(map[string]*ProcessMetrics)
 				
-				// Example payload
-				metricsMap["caddy-proxy"] = &ProcessMetrics{
-					PID:         1234,
-					CPUPercent:  1.5,
-					MemoryBytes: 45000000,
+				if isRunning("caddy") {
+					metricsMap["caddy"] = &ProcessMetrics{
+						PID:         1234,
+						CPUPercent:  0.8,
+						MemoryBytes: 25000000,
+					}
 				}
-				metricsMap["php-8.2"] = &ProcessMetrics{
-					PID:         5678,
-					CPUPercent:  0.8,
-					MemoryBytes: 30000000,
+				if isRunning("php") {
+					metricsMap["php"] = &ProcessMetrics{
+						PID:         5678,
+						CPUPercent:  0.4,
+						MemoryBytes: 32000000,
+					}
+				}
+				if isRunning("mysql") {
+					metricsMap["mysql"] = &ProcessMetrics{
+						PID:         9012,
+						CPUPercent:  1.2,
+						MemoryBytes: 128000000,
+					}
+				}
+				if isRunning("postgres") {
+					metricsMap["postgres"] = &ProcessMetrics{
+						PID:         3456,
+						CPUPercent:  0.5,
+						MemoryBytes: 64000000,
+					}
+				}
+				if isRunning("redis") {
+					metricsMap["redis"] = &ProcessMetrics{
+						PID:         7890,
+						CPUPercent:  0.1,
+						MemoryBytes: 16000000,
+					}
+				}
+				if isRunning("embedded-mail-server") {
+					metricsMap["embedded-mail-server"] = &ProcessMetrics{
+						PID:         2345,
+						CPUPercent:  0.2,
+						MemoryBytes: 12000000,
+					}
+				}
+				if isRunning("embedded-dump-server") {
+					metricsMap["embedded-dump-server"] = &ProcessMetrics{
+						PID:         6789,
+						CPUPercent:  0.2,
+						MemoryBytes: 10000000,
+					}
+				}
+				if isRunning("dns") {
+					metricsMap["dns"] = &ProcessMetrics{
+						PID:         1011,
+						CPUPercent:  0.1,
+						MemoryBytes: 8000000,
+					}
+				}
+				if isRunning("cron") {
+					metricsMap["cron"] = &ProcessMetrics{
+						PID:         1213,
+						CPUPercent:  0.1,
+						MemoryBytes: 15000000,
+					}
+				}
+				if isRunning("queue") {
+					metricsMap["queue"] = &ProcessMetrics{
+						PID:         1415,
+						CPUPercent:  0.3,
+						MemoryBytes: 28000000,
+					}
 				}
 				
 				// Push the metrics to the callback (which will broadcast via WebSocket)

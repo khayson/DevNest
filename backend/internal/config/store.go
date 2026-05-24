@@ -9,9 +9,12 @@ import (
 
 // DevNestConfig represents the persisted state of the environment.
 type DevNestConfig struct {
-	ActivePHPVersion string            `json:"active_php_version"`
-	RegisteredSites  map[string]string `json:"registered_sites"` // Map of domain -> local path
-	CustomPorts      map[string]int    `json:"custom_ports"`     // Map of service -> port
+	ActivePHPVersion  string            `json:"active_php_version"`
+	RegisteredSites   map[string]string `json:"registered_sites"`    // Map of domain -> local path
+	CustomPorts       map[string]int    `json:"custom_ports"`        // Map of service -> port
+	LaunchOnStartup   bool              `json:"launch_on_startup"`   // Automatically launch DevNest at login
+	AutoStartServices bool              `json:"auto_start_services"` // Automatically start services on launch
+	Theme             string            `json:"theme"`               // system, light, dark
 }
 
 type Store struct {
@@ -35,8 +38,11 @@ func NewStore() (*Store, error) {
 	store := &Store{
 		filePath: filepath.Join(configDir, "devnest.json"),
 		data: DevNestConfig{
-			RegisteredSites: make(map[string]string),
-			CustomPorts:     make(map[string]int),
+			RegisteredSites:   make(map[string]string),
+			CustomPorts:       make(map[string]int),
+			LaunchOnStartup:   true,
+			AutoStartServices: true,
+			Theme:             "system",
 		},
 	}
 
@@ -106,6 +112,16 @@ func (s *Store) RegisterSite(domain, localPath string) error {
 func (s *Store) UnregisterSite(domain string) error {
 	s.mu.Lock()
 	delete(s.data.RegisteredSites, domain)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// UpdateSettings updates the general preferences in a thread-safe way and persists them.
+func (s *Store) UpdateSettings(launchOnStartup, autoStartServices bool, theme string) error {
+	s.mu.Lock()
+	s.data.LaunchOnStartup = launchOnStartup
+	s.data.AutoStartServices = autoStartServices
+	s.data.Theme = theme
 	s.mu.Unlock()
 	return s.Save()
 }
