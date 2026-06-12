@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,7 +35,7 @@ func NewServer(binaryPath string, port int) *Server {
 	}
 }
 
-func (s *Server) ID() string      { return "postgresql" }
+func (s *Server) ID() string      { return "postgres" }
 func (s *Server) Name() string    { return "PostgreSQL Server" }
 func (s *Server) Version() string { return "16" }
 
@@ -87,6 +89,8 @@ func (s *Server) Start() error {
 
 	s.state = service.StateRunning
 	log.Printf("[PostgreSQL] Started (PID: %d) on port %d", s.cmd.Process.Pid, s.port)
+
+	go s.ensureDevnestDatabase()
 
 	// Auto-healing supervisor loop
 	go func() {
@@ -172,4 +176,25 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 		CPUPercent:  0.4,
 		MemoryBytes: 67108864, // ~64MB default
 	}, nil
+}
+
+func (s *Server) ensureDevnestDatabase() {
+	time.Sleep(2 * time.Second)
+	createdbPath := filepath.Join(filepath.Dir(s.binaryPath), "createdb")
+	if _, err := os.Stat(createdbPath); os.IsNotExist(err) {
+		if runtime.GOOS == "windows" {
+			createdbPath += ".exe"
+		}
+	}
+	cmd := exec.Command(createdbPath,
+		"-h", "127.0.0.1",
+		"-p", fmt.Sprintf("%d", s.port),
+		"-U", "devnest",
+		"devnest",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if !strings.Contains(string(out), "already exists") {
+			log.Printf("[PostgreSQL] createdb devnest: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
 }

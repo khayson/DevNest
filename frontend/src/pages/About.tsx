@@ -1,208 +1,416 @@
 import { motion } from "framer-motion"
-import { ShieldCheck, Heart, RefreshCw, FolderOpen, Terminal, ArrowUpRight, Key, Shield } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import {
+  Heart,
+  FolderOpen,
+  Code2,
+  Cpu,
+  Copy,
+  Check,
+  RefreshCw,
+  Server,
+  Globe,
+  Clock,
+  HardDrive,
+} from "lucide-react"
+import { useTelemetryStore } from "../shared/store/telemetry"
+import { useAboutStore, formatUptime, computeLiveUptime } from "../shared/store/about"
+import { APP_VERSION, APP_CHANNEL, STACK } from "../shared/lib/version"
+import { PAGE_META, STATUS_STYLES } from "../shared/lib/navigation"
+import { syncAbout, openPath } from "../shared/api/ws"
+import { copyToClipboard } from "../shared/lib/mail"
+import { Badge } from "../shared/ui/badge"
+import { cn } from "../shared/lib/utils"
 
-export function About() {
-  const [isChecking, setIsChecking] = useState(false)
-  const [updateMessage, setUpdateMessage] = useState("DevNest is up to date")
+const FEATURE_PAGES = [
+  "general",
+  "sites",
+  "php",
+  "services",
+  "databases",
+  "mail",
+  "dumps",
+  "logs",
+  "node",
+  "queues",
+  "scheduler",
+] as const
 
-  const handleCheckUpdates = () => {
-    setIsChecking(true)
-    setUpdateMessage("Checking for updates...")
-    setTimeout(() => {
-      setIsChecking(false)
-      setUpdateMessage("DevNest is up to date (Version 1.2.4)")
-    }, 1500)
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await copyToClipboard(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+      title="Copy"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  )
+}
+
+function ServiceStateDot({ state }: { state: string }) {
+  const color =
+    state === "running"
+      ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]"
+      : state === "error"
+        ? "bg-red-500"
+        : state === "unavailable"
+          ? "bg-amber-400"
+          : "bg-zinc-400"
+  return <span className={cn("w-2 h-2 rounded-full shrink-0", color)} />
+}
+
+export function About() {
+  const isConnected = useTelemetryStore((state) => state.isConnected)
+  const about = useAboutStore((state) => state.about)
+  const [liveUptime, setLiveUptime] = useState(0)
+
+  useEffect(() => {
+    if (!about?.started_at) {
+      setLiveUptime(about?.uptime_seconds ?? 0)
+      return
+    }
+    const tick = () => setLiveUptime(computeLiveUptime(about.started_at))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [about?.started_at, about?.uptime_seconds])
+
+  const daemonVersion = about?.daemon_version ?? "—"
+  const goVersion = about?.go_version?.replace("go", "Go ") ?? "—"
+  const platform = about ? `${about.os}/${about.arch}` : "—"
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, filter: "blur(4px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)" }}
       className="h-full flex flex-col min-h-0 space-y-6"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">About</h1>
-          <p className="text-base text-zinc-500 dark:text-zinc-400">Information about the DevNest local environment manager, licenses, and components.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            About DevNest
+          </h1>
+          <p className="text-base text-zinc-500 dark:text-zinc-400">
+            Local development orchestrator — live system info from the Go daemon.
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => syncAbout()}
+          disabled={!isConnected}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-40 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
       </div>
 
       <hr className="border-zinc-200 dark:border-zinc-800" />
 
       <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0 space-y-8 pb-8">
-
-      {/* Hero Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-6 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-xl shadow-sm">
-        <div className="flex items-center space-x-5">
-          <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-4xl font-extrabold shadow-lg shadow-blue-500/10">
-            D
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-zinc-800 dark:text-zinc-200 leading-tight">DevNest Pro</h2>
-            <p className="text-sm text-zinc-500 mt-0.5">Version 1.2.4 (Windows x64 - Stable Channel)</p>
-            <p className="text-xs text-zinc-400 mt-1">Released: May 2026</p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <div className="flex items-center space-x-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <span className={`inline-block w-2.5 h-2.5 rounded-full ${isChecking ? "bg-amber-500 animate-ping" : "bg-green-500"}`} />
-            <span className="font-semibold">{updateMessage}</span>
-          </div>
-          <button
-            onClick={handleCheckUpdates}
-            disabled={isChecking}
-            className="px-4 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-750 text-zinc-700 dark:text-zinc-200 text-xs font-semibold rounded-md shadow-sm flex items-center space-x-1.5 transition-all disabled:opacity-60"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isChecking ? "animate-spin text-blue-500" : ""}`} />
-            <span>Check Updates</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Subscription/License Card */}
-      <div className="space-y-4">
-        <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Subscription & License</h3>
-        <div className="p-6 bg-zinc-50 dark:bg-zinc-900/30 rounded-xl border border-zinc-200 dark:border-zinc-800 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-start space-x-4">
-              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 rounded-lg text-blue-600 dark:text-blue-400">
-                <ShieldCheck className="w-6 h-6" />
+        {/* Hero */}
+        <div className="flex flex-col lg:flex-row lg:items-center gap-6 p-6 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-xl shadow-sm">
+          <div className="flex items-center space-x-5">
+            <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-4xl font-extrabold shadow-lg shadow-blue-500/10">
+              D
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-zinc-800 dark:text-zinc-200 leading-tight">DevNest</h2>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <Badge variant="secondary" className="font-mono tabular-nums">
+                  UI v{APP_VERSION}
+                </Badge>
+                {about && (
+                  <Badge variant="outline" className="font-mono tabular-nums">
+                    Daemon v{daemonVersion}
+                  </Badge>
+                )}
+                <span className="text-xs text-zinc-400">({APP_CHANNEL})</span>
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-base text-zinc-800 dark:text-zinc-200">License Activated</span>
-                  <span className="bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-                    PRO MEMBER
-                  </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap lg:ml-auto gap-3">
+            <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm">
+              <span
+                className={cn(
+                  "inline-block w-2.5 h-2.5 rounded-full",
+                  isConnected ? "bg-emerald-500" : "bg-zinc-400"
+                )}
+              />
+              <span className="font-medium text-zinc-600 dark:text-zinc-400">
+                Daemon {isConnected ? "connected" : "offline"}
+              </span>
+            </div>
+            {about && isConnected && (
+              <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400">
+                <Clock className="w-4 h-4 text-zinc-400" />
+                <span className="font-mono tabular-nums">{formatUptime(liveUptime)}</span>
+                <span className="text-xs text-zinc-400">uptime</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Live stats from daemon */}
+        {about ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard
+              icon={Server}
+              label="Services"
+              value={`${about.running_services}/${about.registered_services}`}
+              sub="running / registered"
+            />
+            <StatCard
+              icon={Globe}
+              label="Sites"
+              value={String(about.site_count)}
+              sub="in registry"
+            />
+            <StatCard
+              icon={Code2}
+              label="PHP"
+              value={about.php_installations > 0 ? String(about.php_installations) : "—"}
+              sub={
+                about.active_php_version
+                  ? `Active ${about.active_php_version}`
+                  : about.capabilities.php
+                    ? "Not selected"
+                    : "Not installed"
+              }
+            />
+            <StatCard
+              icon={HardDrive}
+              label="Runtime"
+              value={platform}
+              sub={goVersion}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500 italic">
+            {isConnected ? "Loading system info from daemon…" : "Start the daemon to see live system information."}
+          </p>
+        )}
+
+        {/* Feature matrix */}
+        <div className="space-y-4">
+          <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Feature status</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {FEATURE_PAGES.map((pageId) => {
+              const meta = PAGE_META[pageId]
+              if (!meta) return null
+              const styles = STATUS_STYLES[meta.status]
+              return (
+                <div
+                  key={pageId}
+                  className="flex items-start gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 px-3 py-2.5"
+                >
+                  <span className={cn("mt-1.5 h-1.5 w-1.5 rounded-full shrink-0", styles.dot)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 capitalize">
+                        {pageId.replace(/-/g, " ")}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border",
+                          styles.badge
+                        )}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-0.5 leading-snug">{meta.description}</p>
+                  </div>
                 </div>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                  Thank you for supporting DevNest! Your license is active and validated on this device.
-                </p>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Daemon services */}
+        {about && about.services.length > 0 && (
+          <>
+            <hr className="border-zinc-200 dark:border-zinc-800" />
+            <div className="space-y-4">
+              <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Registered services</h3>
+              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/50 overflow-hidden shadow-sm">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead className="bg-zinc-50 dark:bg-zinc-900 text-[11px] font-semibold uppercase text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
+                    <tr>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Service</th>
+                      <th className="px-4 py-3 hidden sm:table-cell">Port</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {about.services.map((svc) => (
+                      <tr key={svc.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <ServiceStateDot state={svc.state} />
+                            <span className="text-xs font-medium capitalize text-zinc-600 dark:text-zinc-400">
+                              {svc.state}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-zinc-800 dark:text-zinc-200">
+                          {svc.name}
+                          {!svc.available && (
+                            <span className="ml-2 text-[10px] text-amber-600 dark:text-amber-400 font-normal">
+                              (binary missing)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-zinc-500 hidden sm:table-cell">
+                          {svc.port ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
+          </>
+        )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Licensed To</span>
-                <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">developer@devnest.test</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">License Key</span>
-                <p className="text-sm font-mono text-zinc-650 dark:text-zinc-350">HERD-NEST-PRO-••••-••••-5173</p>
-              </div>
-            </div>
-          </div>
+        <hr className="border-zinc-200 dark:border-zinc-800" />
 
-          <div className="flex flex-col justify-center space-y-2.5 lg:border-l border-zinc-200 dark:border-zinc-800 lg:pl-6">
-            <button className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow flex items-center justify-center space-x-2 transition-colors">
-              <Key className="w-4 h-4" />
-              <span>Manage Subscription</span>
-            </button>
-            <button className="w-full py-2.5 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 text-xs font-semibold rounded-md shadow-sm flex items-center justify-center space-x-2 transition-colors">
-              <Shield className="w-4 h-4 text-zinc-400" />
-              <span>Deactivate Device</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <hr className="border-zinc-200 dark:border-zinc-800" />
-
-      {/* Directory & Paths Config */}
-      <div className="space-y-4">
-        <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">System Directories & Configurations</h3>
-        <p className="text-sm text-zinc-500">Quick access to default service folders, active logs, and host configurations.</p>
-        
-        <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/50 overflow-hidden shadow-sm">
-          <table className="w-full text-left border-collapse text-sm">
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                <td className="px-6 py-4 font-semibold text-zinc-800 dark:text-zinc-200 w-1/3">Caddy Configuration</td>
-                <td className="px-6 py-4 font-mono text-xs text-zinc-500">C:\Users\VICTUS\.devnest\caddy\Caddyfile</td>
-                <td className="px-6 py-4 text-right">
-                  <button className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded transition-colors" title="Open Configuration File">
-                    <FolderOpen className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-              <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                <td className="px-6 py-4 font-semibold text-zinc-800 dark:text-zinc-200">Hosts Configuration</td>
-                <td className="px-6 py-4 font-mono text-xs text-zinc-500">C:\Windows\System32\drivers\etc\hosts</td>
-                <td className="px-6 py-4 text-right">
-                  <button className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded transition-colors" title="Open Configuration File">
-                    <Terminal className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-              <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                <td className="px-6 py-4 font-semibold text-zinc-800 dark:text-zinc-200">Services Log Directory</td>
-                <td className="px-6 py-4 font-mono text-xs text-zinc-500">C:\Users\VICTUS\.devnest\logs</td>
-                <td className="px-6 py-4 text-right">
-                  <button className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded transition-colors" title="Open Directory Folder">
-                    <FolderOpen className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-              <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                <td className="px-6 py-4 font-semibold text-zinc-800 dark:text-zinc-200">Root SSL Certificate</td>
-                <td className="px-6 py-4 font-mono text-xs text-zinc-500">DevNest Authority CA (Trusted)</td>
-                <td className="px-6 py-4 text-right">
-                  <span className="bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">
-                    TRUSTED
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <hr className="border-zinc-200 dark:border-zinc-800" />
-
-      {/* Ecosystem and Credits */}
-      <div className="space-y-4">
-        <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">DevNest Environment Components</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center space-y-1">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Tauri Runtime</span>
-            <p className="text-base font-bold text-zinc-800 dark:text-zinc-200">v2.0.0</p>
-          </div>
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center space-y-1">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Go Backend</span>
-            <p className="text-base font-bold text-zinc-800 dark:text-zinc-200">go1.21.3</p>
-          </div>
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center space-y-1">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">React Core</span>
-            <p className="text-base font-bold text-zinc-800 dark:text-zinc-200">v18.3.1</p>
-          </div>
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center space-y-1">
-            <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Caddy Server</span>
-            <p className="text-base font-bold text-zinc-800 dark:text-zinc-200">v2.7.5</p>
+        {/* Paths */}
+        <div className="space-y-4">
+          <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Paths</h3>
+          <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/50 overflow-hidden shadow-sm">
+            <table className="w-full text-left border-collapse text-sm">
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {(about?.paths ?? []).map((row) => (
+                  <tr key={row.label} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-zinc-800 dark:text-zinc-200 w-1/4 align-top">
+                      {row.label}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 break-all">{row.path || "—"}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-400 hidden md:table-cell align-top">{row.note}</td>
+                    <td className="px-2 py-3 w-20">
+                      <div className="flex items-center justify-end gap-0.5">
+                        {row.path && <CopyButton value={row.path} />}
+                        {row.path && (
+                          <button
+                            type="button"
+                            onClick={() => openPath(row.path)}
+                            disabled={!isConnected}
+                            className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40"
+                            title="Open in Explorer"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      </div>
 
-      <hr className="border-zinc-200 dark:border-zinc-800" />
+        {/* Endpoints */}
+        <div className="space-y-4">
+          <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Endpoints</h3>
+          <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/50 overflow-hidden shadow-sm">
+            <table className="w-full text-left border-collapse text-sm">
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {(about?.endpoints ?? []).map((row) => (
+                  <tr key={row.label} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-zinc-800 dark:text-zinc-200 w-1/4">
+                      {row.label}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">{row.address}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-400 hidden md:table-cell">{row.note}</td>
+                    <td className="px-2 py-3 w-10">
+                      <CopyButton value={row.address} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      {/* Footer Details */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400 pb-4">
-        <div className="flex items-center space-x-1.5 font-medium">
-          <span>Made with</span>
-          <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500" />
-          <span>for the Laravel and PHP communities.</span>
+        <hr className="border-zinc-200 dark:border-zinc-800" />
+
+        {/* Stack */}
+        <div className="space-y-4">
+          <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Built with</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StackTile icon={Cpu} label="Go daemon" value={about?.go_version?.replace("go", "") ?? STACK.go} />
+            <StackTile icon={Code2} label="React" value={STACK.react} />
+            <StackTile icon={FolderOpen} label="Tauri" value={STACK.tauri} />
+            <StackTile icon={Server} label="Vite" value={STACK.vite} />
+          </div>
         </div>
-        <div className="flex items-center space-x-3">
-          <a href="https://herd.laravel.com" target="_blank" rel="noreferrer" className="hover:text-zinc-650 dark:hover:text-zinc-300 transition-colors inline-flex items-center space-x-1 font-medium">
-            <span>Herd Home</span>
-            <ArrowUpRight className="w-3 h-3" />
-          </a>
-          <span>•</span>
-          <span>© 2026 DevNest. All rights reserved.</span>
+
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400 pb-4">
+          <div className="flex items-center space-x-1.5 font-medium">
+            <span>Made with</span>
+            <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500" />
+            <span>for local PHP and web development.</span>
+          </div>
+          <span>
+            DevNest {APP_VERSION}
+            {about ? ` · daemon ${about.daemon_version}` : ""} — early development
+          </span>
         </div>
-      </div>
       </div>
     </motion.div>
+  )
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: typeof Server
+  label: string
+  value: string
+  sub?: string
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 p-3">
+      <div className="flex items-center gap-2 text-zinc-400">
+        <Icon className="w-3.5 h-3.5" />
+        <span className="text-[11px] font-semibold uppercase tracking-wide">{label}</span>
+      </div>
+      <p className="mt-1.5 text-xl font-bold tabular-nums text-zinc-800 dark:text-zinc-200">{value}</p>
+      {sub && <p className="text-[11px] text-zinc-500 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
+function StackTile({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Cpu
+  label: string
+  value: string
+}) {
+  return (
+    <div className="p-4 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg text-center space-y-1">
+      <Icon className="w-4 h-4 mx-auto text-zinc-400 mb-1" />
+      <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">{label}</span>
+      <p className="text-base font-bold text-zinc-800 dark:text-zinc-200">{value}</p>
+    </div>
   )
 }

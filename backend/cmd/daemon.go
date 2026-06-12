@@ -5,15 +5,19 @@ import (
 	"devnest/internal/config"
 	osutil "devnest/internal/os"
 	"devnest/internal/service"
+	"devnest/internal/service/caddy"
 	"devnest/internal/service/dns"
 	"devnest/internal/service/dump"
+	"devnest/internal/service/logs"
 	"devnest/internal/service/mail"
 	"devnest/internal/telemetry"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,22 +29,28 @@ import (
 
 // --- Thread-Safe WebSocket Hub ---
 
+// wsClient wraps a connection with a write mutex (gorilla/websocket is not concurrent-write safe).
+type wsClient struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
 // Hub manages all active WebSocket connections with proper synchronization.
 type Hub struct {
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	clients map[*websocket.Conn]*wsClient
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients: make(map[*websocket.Conn]bool),
+		clients: make(map[*websocket.Conn]*wsClient),
 	}
 }
 
 func (h *Hub) Register(conn *websocket.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.clients[conn] = true
+	h.clients[conn] = &wsClient{conn: conn}
 	log.Printf("[Daemon] New WebSocket client connected (total: %d)", len(h.clients))
 }
 
@@ -54,16 +64,34 @@ func (h *Hub) Unregister(conn *websocket.Conn) {
 	}
 }
 
+// Write sends a text message to a single client (serialized per connection).
+func (h *Hub) Write(conn *websocket.Conn, payload []byte) error {
+	h.mu.RLock()
+	client, ok := h.clients[conn]
+	h.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.conn.WriteMessage(websocket.TextMessage, payload)
+}
+
 // Broadcast sends a JSON payload to all connected clients.
-// Drops slow/dead clients automatically.
 func (h *Hub) Broadcast(payload []byte) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	snapshot := make([]*wsClient, 0, len(h.clients))
+	for _, c := range h.clients {
+		snapshot = append(snapshot, c)
+	}
+	h.mu.RUnlock()
 
-	for client := range h.clients {
-		if err := client.WriteMessage(websocket.TextMessage, payload); err != nil {
-			// Schedule removal outside the read lock
-			go h.Unregister(client)
+	for _, client := range snapshot {
+		client.mu.Lock()
+		err := client.conn.WriteMessage(websocket.TextMessage, payload)
+		client.mu.Unlock()
+		if err != nil {
+			go h.Unregister(client.conn)
 		}
 	}
 }
@@ -102,77 +130,75 @@ var upgrader = websocket.Upgrader{
 
 var hub = NewHub()
 var globalManager *service.Manager
+var globalMailStore *mail.Store
+var globalDumpStore *dump.Store
+var globalCaddy *caddy.Server
+var globalLogManager *logs.Manager
 var cfgStore *config.Store
 
-var serviceStatesMu sync.RWMutex
-var serviceStates = map[string]bool{
-	"caddy":                true,
-	"php":                  true,
-	"mysql":                true,
-	"postgres":             true,
-	"redis":                true,
-	"embedded-mail-server": true,
-	"embedded-dump-server": true,
-	"dns":                  true,
-	"cron":                 true,
-	"queue":                true,
-}
-
-func setAllServiceStates(running bool) {
-	serviceStatesMu.Lock()
-	defer serviceStatesMu.Unlock()
-	for k := range serviceStates {
-		serviceStates[k] = running
+// backendToUI maps daemon service IDs to the IDs used by the frontend.
+func backendToUI(backendID string) string {
+	switch backendID {
+	case "dns-resolver":
+		return "dns"
+	case "embedded-smtp":
+		return "embedded-mail-server"
+	case "caddy-proxy":
+		return "caddy"
+	case "php-cgi":
+		return "php"
+	default:
+		return backendID
 	}
 }
 
-func setServiceState(id string, running bool) {
-	serviceStatesMu.Lock()
-	defer serviceStatesMu.Unlock()
-	mappedID := id
-	if id == "dns-resolver" {
-		mappedID = "dns"
-	} else if id == "embedded-smtp" {
-		mappedID = "embedded-mail-server"
+// uiToBackend maps frontend service IDs to daemon service IDs.
+func uiToBackend(uiID string) string {
+	switch uiID {
+	case "dns":
+		return "dns-resolver"
+	case "embedded-mail-server":
+		return "embedded-smtp"
+	case "caddy":
+		return "caddy-proxy"
+	case "php":
+		return "php-cgi"
+	default:
+		return uiID
 	}
-	serviceStates[mappedID] = running
 }
 
-func getCombinedMetrics() map[string]*telemetry.ProcessMetrics {
-	metrics := make(map[string]*telemetry.ProcessMetrics)
-	serviceStatesMu.RLock()
-	defer serviceStatesMu.RUnlock()
-
-	// Default simulated metrics values
-	simData := map[string]struct {
-		PID         int32
-		CPUPercent  float64
-		MemoryBytes uint64
-	}{
-		"caddy":                {1234, 0.8, 25000000},
-		"php":                  {5678, 0.4, 32000000},
-		"mysql":                {9012, 1.2, 128000000},
-		"postgres":             {3456, 0.5, 64000000},
-		"redis":                {7890, 0.1, 16000000},
-		"embedded-mail-server": {2345, 0.2, 12000000},
-		"embedded-dump-server": {6789, 0.2, 10000000},
-		"dns":                  {1011, 0.1, 8000000},
-		"cron":                 {1213, 0.1, 15000000},
-		"queue":                {1415, 0.3, 28000000},
+// collectServiceTelemetry gathers live health and metrics from registered services.
+func collectServiceTelemetry() map[string]interface{} {
+	if globalManager == nil {
+		return map[string]interface{}{}
 	}
 
-	for id, running := range serviceStates {
-		if running {
-			if data, ok := simData[id]; ok {
-				metrics[id] = &telemetry.ProcessMetrics{
-					PID:         data.PID,
-					CPUPercent:  data.CPUPercent,
-					MemoryBytes: data.MemoryBytes,
-				}
-			}
+	health := globalManager.HealthCheck()
+	metrics := globalManager.GetAllMetrics()
+	result := make(map[string]interface{}, len(health))
+
+	for backendID, state := range health {
+		uiID := backendToUI(backendID)
+		entry := map[string]interface{}{
+			"state": string(state),
 		}
+		if m, ok := metrics[backendID]; ok && m != nil {
+			entry["pid"] = m.PID
+			entry["cpu_percent"] = m.CPUPercent
+			entry["memory_bytes"] = m.MemoryBytes
+			entry["uptime_seconds"] = m.UptimeSeconds
+			entry["open_sockets"] = m.OpenSockets
+		}
+		result[uiID] = entry
 	}
-	return metrics
+	return result
+}
+
+func broadcastTelemetry() {
+	broadcastEvent("telemetry_update", map[string]interface{}{
+		"metrics": collectServiceTelemetry(),
+	})
 }
 
 // daemonCmd represents the daemon command
@@ -183,7 +209,10 @@ var daemonCmd = &cobra.Command{
 This launches the WebSocket server on port 9090 for the Tauri UI,
 initializes the telemetry poller, and boots configured services.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		setupDaemonLogFile()
+
 		log.Println("[Daemon] Booting DevNest Orchestrator...")
+		daemonStartedAt = time.Now()
 
 		// Initialize config store
 		var err error
@@ -191,9 +220,6 @@ initializes the telemetry poller, and boots configured services.`,
 		if err != nil {
 			log.Fatalf("[Daemon] Failed to initialize config store: %v", err)
 		}
-
-		// Set initial states based on configured auto-start preference
-		setAllServiceStates(cfgStore.GetConfig().AutoStartServices)
 
 		// Step 1: Start WebSocket Server
 		mux := http.NewServeMux()
@@ -213,11 +239,7 @@ initializes the telemetry poller, and boots configured services.`,
 
 		// Step 2: Initialize and Start Telemetry Poller
 		poller := telemetry.NewPoller(2 * time.Second)
-		poller.Start(func(id string) bool {
-			serviceStatesMu.RLock()
-			defer serviceStatesMu.RUnlock()
-			return serviceStates[id]
-		}, func(metrics map[string]*telemetry.ProcessMetrics) {
+		poller.Start(collectServiceTelemetry, func(metrics map[string]interface{}) {
 			broadcastEvent("telemetry_update", map[string]interface{}{
 				"metrics": metrics,
 			})
@@ -231,30 +253,73 @@ initializes the telemetry poller, and boots configured services.`,
 		globalManager.Register(dnsServer)
 
 		// Register Email Interceptor
-		mailStore := mail.NewStore(100)
-		mailServer := mail.NewServer(1025, mailStore, func(email mail.CapturedEmail) {
+		globalMailStore = mail.NewStore(100)
+		mailServer := mail.NewServer(1025, globalMailStore, func(email mail.CapturedEmail) {
 			broadcastEvent("mail_captured", map[string]interface{}{"email": email})
 		})
 		globalManager.Register(mailServer)
 
 		// Register Dump Server
-		dumpStore := dump.NewStore(200)
-		dumpServer := dump.NewServer(9912, dumpStore, func(entry dump.CapturedDump) {
+		globalDumpStore = dump.NewStore(200)
+		dumpServer := dump.NewServer(9912, globalDumpStore, func(entry dump.CapturedDump) {
 			broadcastEvent("dump_captured", map[string]interface{}{"dump": entry})
 		})
 		globalManager.Register(dumpServer)
+
+		// Register Caddy reverse proxy (optional — skipped if binary not found)
+		caddyBin, caddyErr := config.ResolveCaddyBinary()
+		caddyDir, _ := config.CaddyConfigDir()
+		if caddyErr != nil {
+			log.Printf("[Daemon] Caddy not registered: binary not found (%v). Install caddy or add to PATH.", caddyErr)
+			globalCaddy = caddy.NewServer("", caddyDir, func() []config.SiteEntry {
+				if cfgStore == nil {
+					return nil
+				}
+				return cfgStore.GetSites()
+			}, phpPortForSite)
+		} else {
+			log.Printf("[Daemon] Caddy binary: %s", caddyBin)
+			globalCaddy = caddy.NewServer(caddyBin, caddyDir, func() []config.SiteEntry {
+				if cfgStore == nil {
+					return nil
+				}
+				return cfgStore.GetSites()
+			}, phpPortForSite)
+			globalManager.Register(globalCaddy)
+		}
+
+		registerPHPService()
+
+		registerDatabaseServices()
+
+		// Register Log Aggregator
+		var logMgrErr error
+		globalLogManager, logMgrErr = logs.NewManager(2000, func(entry logs.LogEntry) {
+			broadcastEvent("log_entry", map[string]interface{}{"entry": entry})
+		})
+		if logMgrErr != nil {
+			log.Printf("[Daemon] Log aggregator unavailable: %v", logMgrErr)
+		} else {
+			sites := []config.SiteEntry{}
+			if cfgStore != nil {
+				sites = cfgStore.GetSites()
+			}
+			if err := globalLogManager.ConfigureSources(sites); err != nil {
+				log.Printf("[Daemon] Log source setup warning: %v", err)
+			}
+			globalLogManager.Start()
+			log.Println("[Daemon] Log aggregator watching devnest, caddy, and laravel logs")
+		}
 
 		// Start all registered services if auto-start is enabled
 		if cfgStore.GetConfig().AutoStartServices {
 			log.Println("[Daemon] AutoStartServices is enabled. Starting all registered services...")
 			if err := globalManager.StartAll(); err != nil {
-				log.Fatalf("[Daemon] Failed to start services: %v", err)
+				log.Printf("[Daemon] Some services failed to start: %v", err)
 			}
 		} else {
 			log.Println("[Daemon] AutoStartServices is disabled. Services will remain idle until manually started.")
 		}
-
-		// (Log Aggregator could be added here later once integrated with UI)
 
 		// Step 4: Wait for OS shutdown signal (Graceful Shutdown)
 		quit := make(chan os.Signal, 1)
@@ -271,11 +336,97 @@ initializes the telemetry poller, and boots configured services.`,
 		}
 
 		poller.Stop()
+		if globalLogManager != nil {
+			_ = globalLogManager.Stop()
+		}
 		globalManager.StopAll()
 
 		log.Println("[Daemon] All services stopped. Goodbye.")
 
 	},
+}
+
+func sendLogInbox(conn *websocket.Conn) {
+	if globalLogManager == nil {
+		return
+	}
+	entries := globalLogManager.GetAll()
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"event":   "log_inbox_sync",
+		"entries": entries,
+	})
+	if err == nil {
+		_ = hub.Write(conn, payload)
+	}
+}
+
+func refreshLogSources() {
+	if globalLogManager == nil || cfgStore == nil {
+		return
+	}
+	if err := globalLogManager.ConfigureSources(cfgStore.GetSites()); err != nil {
+		log.Printf("[Daemon] Log source refresh warning: %v", err)
+	}
+}
+
+func setupDaemonLogFile() {
+	logsDir, err := config.LogsDir()
+	if err != nil {
+		return
+	}
+	logPath := filepath.Join(logsDir, "devnest.log")
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+}
+
+func sendMailInbox(conn *websocket.Conn) {
+	if globalMailStore == nil {
+		return
+	}
+	emails := globalMailStore.GetAll()
+	// Newest first for the UI
+	for i, j := 0, len(emails)-1; i < j; i, j = i+1, j-1 {
+		emails[i], emails[j] = emails[j], emails[i]
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"event":  "mail_inbox_sync",
+		"emails": emails,
+	})
+	if err == nil {
+		_ = hub.Write(conn, payload)
+	}
+}
+
+func sendDumpInbox(conn *websocket.Conn) {
+	if globalDumpStore == nil {
+		return
+	}
+	dumps := globalDumpStore.GetAll()
+	for i, j := 0, len(dumps)-1; i < j; i, j = i+1, j-1 {
+		dumps[i], dumps[j] = dumps[j], dumps[i]
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"event": "dump_inbox_sync",
+		"dumps": dumps,
+	})
+	if err == nil {
+		_ = hub.Write(conn, payload)
+	}
+}
+
+func reloadCaddyIfRunning() {
+	if globalCaddy == nil || !globalCaddy.BinaryAvailable() {
+		return
+	}
+	if err := globalCaddy.ReloadConfig(); err != nil {
+		log.Printf("[Daemon] Caddy reload failed: %v", err)
+	}
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -295,9 +446,38 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			"config": cfg,
 		}
 		if payload, err := json.Marshal(resp); err == nil {
-			conn.WriteMessage(websocket.TextMessage, payload)
+			_ = hub.Write(conn, payload)
 		}
 	}
+
+	// Send current service state to the newly connected client
+	if telemetryPayload, err := json.Marshal(map[string]interface{}{
+		"event":   "telemetry_update",
+		"metrics": collectServiceTelemetry(),
+	}); err == nil {
+		_ = hub.Write(conn, telemetryPayload)
+	}
+
+	// Sync captured mail inbox to the client
+	sendMailInbox(conn)
+
+	// Sync captured dumps to the client
+	sendDumpInbox(conn)
+
+	// Sync registered sites
+	sendSitesSync(conn)
+
+	// Sync log entries
+	sendLogInbox(conn)
+
+	// Sync PHP installations and config
+	sendPHPSync(conn)
+
+	// Sync database services and SQLite scan
+	sendDatabaseSync(conn)
+
+	// Sync about / system info
+	sendAboutSync(conn)
 
 	// Keep connection alive, listen for UI commands
 	for {
@@ -332,7 +512,88 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 						"config": cfg,
 					}
 					if payload, err := json.Marshal(resp); err == nil {
-						conn.WriteMessage(websocket.TextMessage, payload)
+						_ = hub.Write(conn, payload)
+					}
+				}
+			case "get_mail_inbox":
+				sendMailInbox(conn)
+			case "get_dump_inbox":
+				sendDumpInbox(conn)
+			case "get_log_inbox":
+				sendLogInbox(conn)
+			case "get_sites":
+				sendSitesSync(conn)
+			case "get_php":
+				sendPHPSync(conn)
+			case "get_databases":
+				sendDatabaseSync(conn)
+			case "get_about":
+				sendAboutSync(conn)
+			case "scan_databases":
+				handleScanDatabases()
+			case "run_migration":
+				handleRunMigration(wsMsg.Payload)
+			case "set_active_php":
+				handleSetActivePHP(wsMsg.Payload)
+			case "update_php_ini":
+				handleUpdatePHPIni(wsMsg.Payload)
+			case "add_site":
+				if cfgStore != nil {
+					if entry, ok := parseSitePayload(wsMsg.Payload); ok {
+						if err := cfgStore.AddSite(entry); err != nil {
+							log.Printf("[Daemon] Error adding site: %v", err)
+						} else {
+							afterSiteMutation()
+						}
+					}
+				}
+			case "update_site":
+				handleUpdateSite(wsMsg.Payload)
+			case "toggle_site_tls":
+				handleToggleSiteTLS(wsMsg.Payload)
+			case "open_path":
+				handleOpenPath(wsMsg.Payload)
+			case "remove_site":
+				if cfgStore != nil {
+					if domain, ok := wsMsg.Payload["domain"].(string); ok {
+						if err := cfgStore.RemoveSite(domain); err != nil {
+							log.Printf("[Daemon] Error removing site: %v", err)
+						} else {
+							afterSiteMutation()
+						}
+					}
+				}
+			case "clear_mail_inbox":
+				if globalMailStore != nil {
+					globalMailStore.Clear()
+					payload, err := json.Marshal(map[string]interface{}{
+						"event":  "mail_inbox_sync",
+						"emails": []mail.CapturedEmail{},
+					})
+					if err == nil {
+						hub.Broadcast(payload)
+					}
+				}
+			case "clear_dump_inbox":
+				if globalDumpStore != nil {
+					globalDumpStore.Clear()
+					payload, err := json.Marshal(map[string]interface{}{
+						"event": "dump_inbox_sync",
+						"dumps": []dump.CapturedDump{},
+					})
+					if err == nil {
+						hub.Broadcast(payload)
+					}
+				}
+			case "clear_log_inbox":
+				if globalLogManager != nil {
+					globalLogManager.Clear()
+					payload, err := json.Marshal(map[string]interface{}{
+						"event":   "log_inbox_sync",
+						"entries": []logs.LogEntry{},
+					})
+					if err == nil {
+						hub.Broadcast(payload)
 					}
 				}
 			case "update_settings":
@@ -353,57 +614,41 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				broadcastEvent("config_update", map[string]interface{}{"config": cfgStore.GetConfig()})
 
 			case "start_all":
-				setAllServiceStates(true)
 				if err := globalManager.StartAll(); err != nil {
 					log.Printf("[Daemon] Error starting all: %v", err)
 				}
-				broadcastEvent("telemetry_update", map[string]interface{}{"metrics": getCombinedMetrics()})
+				broadcastTelemetry()
+				broadcastAboutSync()
 			case "stop_all":
-				setAllServiceStates(false)
 				globalManager.StopAll()
-				broadcastEvent("telemetry_update", map[string]interface{}{"metrics": getCombinedMetrics()})
+				broadcastTelemetry()
+				broadcastAboutSync()
 			case "start_service":
 				if serviceId, ok := wsMsg.Payload["serviceId"].(string); ok {
-					setServiceState(serviceId, true)
-					backendId := serviceId
-					if serviceId == "dns" {
-						backendId = "dns-resolver"
-					} else if serviceId == "embedded-mail-server" {
-						backendId = "embedded-smtp"
-					}
+					backendId := uiToBackend(serviceId)
 					if srv, found := globalManager.GetService(backendId); found {
 						srv.Configure()
 						if err := srv.Start(); err != nil {
 							log.Printf("[Daemon] Error starting service %s: %v", serviceId, err)
 						}
 					}
-					broadcastEvent("telemetry_update", map[string]interface{}{"metrics": getCombinedMetrics()})
+					broadcastTelemetry()
+					broadcastAboutSync()
 				}
 			case "stop_service":
 				if serviceId, ok := wsMsg.Payload["serviceId"].(string); ok {
-					setServiceState(serviceId, false)
-					backendId := serviceId
-					if serviceId == "dns" {
-						backendId = "dns-resolver"
-					} else if serviceId == "embedded-mail-server" {
-						backendId = "embedded-smtp"
-					}
+					backendId := uiToBackend(serviceId)
 					if srv, found := globalManager.GetService(backendId); found {
 						if err := srv.Stop(); err != nil {
 							log.Printf("[Daemon] Error stopping service %s: %v", serviceId, err)
 						}
 					}
-					broadcastEvent("telemetry_update", map[string]interface{}{"metrics": getCombinedMetrics()})
+					broadcastTelemetry()
+					broadcastAboutSync()
 				}
 			case "restart_service":
 				if serviceId, ok := wsMsg.Payload["serviceId"].(string); ok {
-					setServiceState(serviceId, true)
-					backendId := serviceId
-					if serviceId == "dns" {
-						backendId = "dns-resolver"
-					} else if serviceId == "embedded-mail-server" {
-						backendId = "embedded-smtp"
-					}
+					backendId := uiToBackend(serviceId)
 					if srv, found := globalManager.GetService(backendId); found {
 						srv.Stop()
 						srv.Configure()
@@ -411,7 +656,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 							log.Printf("[Daemon] Error restarting service %s: %v", serviceId, err)
 						}
 					}
-					broadcastEvent("telemetry_update", map[string]interface{}{"metrics": getCombinedMetrics()})
+					broadcastTelemetry()
+					broadcastAboutSync()
 				}
 			}
 		}
@@ -426,6 +672,32 @@ func broadcastEvent(eventType string, data map[string]interface{}) {
 		return
 	}
 	hub.Broadcast(payload)
+}
+
+func parseSitePayload(p map[string]interface{}) (config.SiteEntry, bool) {
+	domain, _ := p["domain"].(string)
+	path, _ := p["path"].(string)
+	name, _ := p["name"].(string)
+	phpVersion, _ := p["php_version"].(string)
+	port := 8000
+	if v, ok := p["port"].(float64); ok {
+		port = int(v)
+	}
+	tls := true
+	if v, ok := p["tls"].(bool); ok {
+		tls = v
+	}
+	if domain == "" || path == "" {
+		return config.SiteEntry{}, false
+	}
+	return config.SiteEntry{
+		Name:       name,
+		Domain:     domain,
+		Path:       path,
+		Port:       port,
+		TLS:        tls,
+		PHPVersion: phpVersion,
+	}, true
 }
 
 func init() {

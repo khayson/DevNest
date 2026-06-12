@@ -1,221 +1,438 @@
-import { motion } from "framer-motion"
-import { Mail as MailIcon, Trash2, Search, ArrowRight, Eye, Calendar, User } from "lucide-react"
-import { useCapturedStore } from "../shared/store/captured"
-import { useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  Inbox,
+  RefreshCw,
+  Search,
+  Trash2,
+  MoreHorizontal,
+  Download,
+  ArrowUpDown,
+  Filter,
+  X,
+} from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { sendCommand } from "@/shared/api/ws"
+import { startServiceWithFeedback } from "@/shared/lib/service-actions"
+import {
+  copyToClipboard,
+  formatBytes,
+  extractUniqueAddresses,
+  buildEmlFile,
+  downloadFile,
+} from "@/shared/lib/mail"
+import { notify } from "@/shared/store/notifications"
+import { useCapturedStore, type CapturedEmail } from "@/shared/store/captured"
+import { useTelemetryStore } from "@/shared/store/telemetry"
+import { SmtpStatus } from "@/shared/ui/smtp-status"
+import { PageLayout } from "@/shared/ui/page-layout"
+import { Button } from "@/shared/ui/button"
+import { Input } from "@/shared/ui/input"
+import { ScrollArea } from "@/shared/ui/scroll-area"
+import { Separator } from "@/shared/ui/separator"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu"
+import { cn } from "@/shared/lib/utils"
+import { MailListItem } from "@/pages/mail/mail-list-item"
+import { MailEmptyState, ENV_SNIPPET } from "@/pages/mail/mail-empty-state"
+import { MailReader, type ContentTab } from "@/pages/mail/mail-reader"
+
+type SortOrder = "newest" | "oldest" | "largest"
 
 export function Mail() {
-  const emails = useCapturedStore((state) => state.emails)
-  const clearEmails = useCapturedStore((state) => state.clearEmails)
+  const emails = useCapturedStore((s) => s.emails)
+  const clearEmails = useCapturedStore((s) => s.clearEmails)
+  const removeEmail = useCapturedStore((s) => s.removeEmail)
+  const isConnected = useTelemetryStore((s) => s.isConnected)
+  const mailRunning = useTelemetryStore((s) => s.services["embedded-mail-server"]?.state === "running")
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<"html" | "text" | "headers">("html")
+  const [activeTab, setActiveTab] = useState<ContentTab>("preview")
   const [search, setSearch] = useState("")
+  const [senderFilter, setSenderFilter] = useState("all")
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest")
+  const [newestId, setNewestId] = useState<string | null>(null)
+  const [copiedEnv, setCopiedEnv] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [isStartingSmtp, setIsStartingSmtp] = useState(false)
+  const [mobilePane, setMobilePane] = useState<"list" | "read">("list")
+  const prevFirstIdRef = useRef<string | null>(null)
 
-  const selectedEmail = emails.find((e) => e.id === selectedId) || null
+  const senders = useMemo(() => extractUniqueAddresses(emails, "sender"), [emails])
+  const totalBytes = useMemo(() => emails.reduce((sum, e) => sum + (e.size ?? 0), 0), [emails])
 
-  const filteredEmails = emails.filter(
-    (e) =>
-      e.subject.toLowerCase().includes(search.toLowerCase()) ||
-      e.sender.toLowerCase().includes(search.toLowerCase()) ||
-      e.recipient.toLowerCase().includes(search.toLowerCase())
+  const filteredEmails = useMemo(() => {
+    let list = emails.filter((e) => {
+      const q = search.toLowerCase()
+      const matchesSearch =
+        e.subject.toLowerCase().includes(q) ||
+        e.sender.toLowerCase().includes(q) ||
+        e.recipient.toLowerCase().includes(q) ||
+        e.body.toLowerCase().includes(q)
+      const matchesSender = senderFilter === "all" || e.sender === senderFilter
+      return matchesSearch && matchesSender
+    })
+
+    list = [...list].sort((a, b) => {
+      if (sortOrder === "largest") return (b.size ?? 0) - (a.size ?? 0)
+      const ta = new Date(a.timestamp).getTime()
+      const tb = new Date(b.timestamp).getTime()
+      return sortOrder === "oldest" ? ta - tb : tb - ta
+    })
+
+    return list
+  }, [emails, search, senderFilter, sortOrder])
+
+  const selectedEmail = emails.find((e) => e.id === selectedId) ?? null
+  const selectedIndex = filteredEmails.findIndex((e) => e.id === selectedId)
+
+  useEffect(() => {
+    if (emails.length === 0) {
+      setSelectedId(null)
+      prevFirstIdRef.current = null
+      return
+    }
+    const latest = emails[0]
+    if (!selectedId || !emails.some((e) => e.id === selectedId)) {
+      setSelectedId(latest.id)
+    }
+    if (prevFirstIdRef.current && latest.id !== prevFirstIdRef.current) {
+      setNewestId(latest.id)
+      const timer = setTimeout(() => setNewestId(null), 4000)
+      prevFirstIdRef.current = latest.id
+      return () => clearTimeout(timer)
+    }
+    prevFirstIdRef.current = latest.id
+  }, [emails, selectedId])
+
+  useEffect(() => {
+    if (mailRunning) setIsStartingSmtp(false)
+  }, [mailRunning])
+
+  useEffect(() => {
+    if (!isStartingSmtp) return
+    const t = setTimeout(() => setIsStartingSmtp(false), 7000)
+    return () => clearTimeout(t)
+  }, [isStartingSmtp])
+
+  const navigateEmail = useCallback(
+    (direction: 1 | -1) => {
+      if (filteredEmails.length === 0) return
+      const idx = filteredEmails.findIndex((e) => e.id === selectedId)
+      const next = idx === -1 ? 0 : Math.max(0, Math.min(filteredEmails.length - 1, idx + direction))
+      setSelectedId(filteredEmails[next].id)
+      setMobilePane("read")
+    },
+    [filteredEmails, selectedId]
   )
 
-  const formatTimestamp = (isoString: string) => {
-    try {
-      const d = new Date(isoString)
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return isoString
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      if (e.key === "ArrowDown" || e.key === "j") {
+        e.preventDefault()
+        navigateEmail(1)
+      } else if (e.key === "ArrowUp" || e.key === "k") {
+        e.preventDefault()
+        navigateEmail(-1)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [navigateEmail])
+
+  const handleStartSmtp = () => {
+    setIsStartingSmtp(true)
+    startServiceWithFeedback("embedded-mail-server")
+  }
+
+  const handleRefresh = () => {
+    setRefreshing(true)
+    if (sendCommand("get_mail_inbox")) {
+      notify.toast("Syncing inbox…", "Fetching messages from daemon", "info")
+    }
+    setTimeout(() => setRefreshing(false), 600)
+  }
+
+  const handleClearAll = () => {
+    clearEmails()
+    setSelectedId(null)
+    setMobilePane("list")
+    if (sendCommand("clear_mail_inbox")) {
+      notify.success("Inbox cleared", "All captured messages removed.", "mail")
     }
   }
 
+  const handleExportEml = (email: CapturedEmail) => {
+    const safeName = (email.subject || email.id).replace(/[^\w.-]+/g, "_").slice(0, 40)
+    downloadFile(`${safeName}.eml`, buildEmlFile(email))
+  }
+
+  const handleDeleteSelected = () => {
+    if (!selectedId) return
+    const idx = emails.findIndex((e) => e.id === selectedId)
+    removeEmail(selectedId)
+    const remaining = emails.filter((e) => e.id !== selectedId)
+    setSelectedId(remaining[Math.min(idx, remaining.length - 1)]?.id ?? null)
+  }
+
+  const handleCopyEnv = async () => {
+    await copyToClipboard(ENV_SNIPPET)
+    setCopiedEnv(true)
+    setTimeout(() => setCopiedEnv(false), 2000)
+  }
+
+  const sortLabels: Record<SortOrder, string> = {
+    newest: "Newest first",
+    oldest: "Oldest first",
+    largest: "Largest first",
+  }
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
-      className="h-full flex flex-col min-h-0 space-y-6"
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18 }}
+      className="h-full min-h-0 w-full"
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Mail</h1>
-          <p className="text-base text-zinc-500 dark:text-zinc-400">Intercept, debug, and preview emails sent by your local apps on port 1025.</p>
-        </div>
+      <PageLayout noScroll className="p-3 sm:p-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          {/* Toolbar */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2.5 sm:px-4">
+            <SmtpStatus
+              isConnected={isConnected}
+              mailRunning={mailRunning}
+              isStarting={isStartingSmtp}
+              onStartSmtp={handleStartSmtp}
+            />
 
-        {emails.length > 0 && (
-          <button 
-            onClick={() => {
-              clearEmails()
-              setSelectedId(null)
-            }}
-            className="px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-red-600 dark:text-red-400 text-xs font-semibold rounded-md shadow-sm flex items-center space-x-1.5 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear Inbox</span>
-          </button>
-        )}
-      </div>
+            {emails.length > 0 && (
+              <>
+                <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" />
+                <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
+                  <Inbox className="h-3.5 w-3.5" />
+                  <span className="font-medium tabular-nums text-foreground">{emails.length}</span>
+                  <span>messages</span>
+                  <span className="text-border">·</span>
+                  <span className="tabular-nums">{senders.length} senders</span>
+                  <span className="text-border">·</span>
+                  <span className="tabular-nums">{formatBytes(totalBytes)}</span>
+                </div>
+              </>
+            )}
 
-      <hr className="border-zinc-200 dark:border-zinc-800" />
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleRefresh}
+                disabled={!isConnected}
+                title="Sync inbox"
+              >
+                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              </Button>
 
-      {emails.length === 0 ? (
-        <div className="flex-1 border border-dashed border-zinc-300 dark:border-zinc-800 rounded-lg flex flex-col items-center justify-center p-8 text-center text-zinc-400 dark:text-zinc-500 space-y-3">
-          <div className="p-3 bg-zinc-100 dark:bg-zinc-900 rounded-full">
-            <MailIcon className="w-6 h-6 text-zinc-400 dark:text-zinc-600" />
+              {emails.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      disabled={!selectedId}
+                      onClick={() => selectedEmail && handleExportEml(selectedEmail)}
+                    >
+                      <Download className="h-4 w-4" />
+                      Export selected .eml
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={!selectedId} onClick={handleDeleteSelected}>
+                      <Trash2 className="h-4 w-4" />
+                      Delete selected
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={handleClearAll}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Clear entire inbox
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Mailbox is empty</p>
-            <p className="text-xs">SMTP server is listening on port <span className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">1025</span></p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 flex border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-white dark:bg-zinc-900/50 shadow-sm min-h-0">
-          
-          {/* Left Column: Email List */}
-          <div className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col min-h-0 bg-zinc-50/50 dark:bg-zinc-900/30">
-            <div className="p-3 border-b border-zinc-200 dark:border-zinc-800">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Search emails..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-md text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+
+          {emails.length === 0 ? (
+            <MailEmptyState
+              onCopyEnv={handleCopyEnv}
+              copiedEnv={copiedEnv}
+              isConnected={isConnected}
+              mailRunning={mailRunning}
+              isStarting={isStartingSmtp}
+              onStartSmtp={handleStartSmtp}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+            />
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+              {/* Inbox list */}
+              <div
+                className={cn(
+                  "flex min-h-0 flex-col border-border md:w-80 md:shrink-0 md:border-r lg:w-[340px]",
+                  mobilePane === "read" ? "hidden md:flex" : "flex flex-1 md:flex-none"
+                )}
+              >
+                <div className="shrink-0 space-y-2.5 border-b border-border p-3">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      placeholder="Search mail…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="h-9 pl-8 text-xs"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {senders.length > 1 && (
+                      <div className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
+                        <Filter className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <select
+                          value={senderFilter}
+                          onChange={(e) => setSenderFilter(e.target.value)}
+                          className="min-w-0 flex-1 truncate bg-transparent text-[11px] font-medium text-foreground focus:outline-none"
+                        >
+                          <option value="all">All senders</option>
+                          {senders.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {emails.length > 1 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-[11px]">
+                            <ArrowUpDown className="h-3 w-3" />
+                            {sortLabels[sortOrder]}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-40">
+                          {(Object.keys(sortLabels) as SortOrder[]).map((key) => (
+                            <DropdownMenuItem
+                              key={key}
+                              onClick={() => setSortOrder(key)}
+                              className={cn(sortOrder === key && "bg-accent")}
+                            >
+                              {sortLabels[key]}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    <span className="ml-auto hidden text-[10px] text-muted-foreground lg:inline">
+                      j/k navigate
+                    </span>
+                  </div>
+
+                  {filteredEmails.length !== emails.length && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Showing {filteredEmails.length} of {emails.length}
+                    </p>
+                  )}
+                </div>
+
+                <ScrollArea className="min-h-0 flex-1 bg-muted/15">
+                  {filteredEmails.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+                      <Search className="h-6 w-6 text-muted-foreground/40" />
+                      <p className="text-sm text-muted-foreground">No messages match your filters</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          setSearch("")
+                          setSenderFilter("all")
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/60">
+                      <AnimatePresence initial={false}>
+                        {filteredEmails.map((email) => (
+                          <motion.div
+                            key={email.id}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <MailListItem
+                              email={email}
+                              isSelected={email.id === selectedId}
+                              isNew={email.id === newestId}
+                              onSelect={() => {
+                                setSelectedId(email.id)
+                                setActiveTab("preview")
+                                setMobilePane("read")
+                              }}
+                            />
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+
+              {/* Reader */}
+              <div
+                className={cn(
+                  "flex min-h-0 min-w-0 flex-1 flex-col",
+                  mobilePane === "list" ? "hidden md:flex" : "flex"
+                )}
+              >
+                <MailReader
+                  email={selectedEmail}
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                  onBack={() => setMobilePane("list")}
+                  onDelete={handleDeleteSelected}
+                  onExport={handleExportEml}
+                  onPrev={() => navigateEmail(-1)}
+                  onNext={() => navigateEmail(1)}
+                  hasPrev={selectedIndex > 0}
+                  hasNext={selectedIndex >= 0 && selectedIndex < filteredEmails.length - 1}
                 />
               </div>
             </div>
-
-            <div className="flex-1 overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800 custom-scrollbar">
-              {filteredEmails.map((email) => {
-                const isSelected = email.id === selectedId
-                return (
-                  <button
-                    key={email.id}
-                    onClick={() => setSelectedId(email.id)}
-                    className={`w-full p-3 text-left transition-colors flex flex-col space-y-1
-                      ${isSelected 
-                        ? "bg-blue-50/70 dark:bg-blue-950/20 text-zinc-900 dark:text-zinc-50 border-l-2 border-blue-500" 
-                        : "hover:bg-zinc-50 dark:hover:bg-zinc-800/10 text-zinc-700 dark:text-zinc-350"
-                      }`}
-                  >
-                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                      <span className="font-semibold text-zinc-600 dark:text-zinc-400 truncate max-w-[120px]" title={email.sender}>
-                        {email.sender.split("@")[0]}
-                      </span>
-                      <span>{formatTimestamp(email.timestamp)}</span>
-                    </div>
-                    <span className="text-xs font-semibold truncate leading-tight">
-                      {email.subject || "(No Subject)"}
-                    </span>
-                    <span className="text-[11px] text-zinc-400 truncate">
-                      To: {email.recipient}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Right Column: Reader Pane */}
-          <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-zinc-950/40">
-            {selectedEmail ? (
-              <div className="flex-1 flex flex-col min-h-0">
-                {/* Email Info Header */}
-                <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 space-y-3 bg-zinc-50/30 dark:bg-zinc-900/10">
-                  <div className="flex items-start justify-between">
-                    <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50">
-                      {selectedEmail.subject || "(No Subject)"}
-                    </h2>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    <div className="flex items-center space-x-2">
-                      <User className="w-3.5 h-3.5 text-zinc-400" />
-                      <span className="font-medium text-zinc-700 dark:text-zinc-350">From:</span>
-                      <span className="font-mono select-all bg-zinc-100 dark:bg-zinc-900 px-1 py-0.5 rounded text-[11px]">{selectedEmail.sender}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
-                      <span className="font-medium text-zinc-700 dark:text-zinc-350">To:</span>
-                      <span className="font-mono select-all bg-zinc-100 dark:bg-zinc-900 px-1 py-0.5 rounded text-[11px]">{selectedEmail.recipient}</span>
-                    </div>
-                    <div className="flex items-center space-x-2 md:col-span-2">
-                      <Calendar className="w-3.5 h-3.5 text-zinc-400" />
-                      <span className="font-medium text-zinc-700 dark:text-zinc-350">Date:</span>
-                      <span>{new Date(selectedEmail.timestamp).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tab Bar */}
-                <div className="flex border-b border-zinc-200 dark:border-zinc-800 px-4 py-2 space-x-2 text-xs">
-                  <button
-                    onClick={() => setActiveTab("html")}
-                    className={`px-3 py-1.5 rounded-md font-medium transition-colors
-                      ${activeTab === "html" 
-                        ? "bg-zinc-100 dark:bg-zinc-850 text-zinc-800 dark:text-zinc-200" 
-                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-                      }`}
-                  >
-                    HTML Preview
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("text")}
-                    className={`px-3 py-1.5 rounded-md font-medium transition-colors
-                      ${activeTab === "text" 
-                        ? "bg-zinc-100 dark:bg-zinc-850 text-zinc-800 dark:text-zinc-200" 
-                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-                      }`}
-                  >
-                    Plain Text
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("headers")}
-                    className={`px-3 py-1.5 rounded-md font-medium transition-colors
-                      ${activeTab === "headers" 
-                        ? "bg-zinc-100 dark:bg-zinc-850 text-zinc-800 dark:text-zinc-200" 
-                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-                      }`}
-                  >
-                    Raw Content
-                  </button>
-                </div>
-
-                {/* Mail Content Reader View */}
-                <div className="flex-1 overflow-auto p-4 min-h-0 bg-white dark:bg-zinc-950/20">
-                  {activeTab === "html" ? (
-                    selectedEmail.html ? (
-                      <iframe 
-                        title="HTML Email Preview"
-                        srcDoc={selectedEmail.html} 
-                        className="w-full h-full border-0 bg-white rounded-md"
-                        sandbox="allow-same-origin"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center p-8 text-zinc-400 space-y-2 h-full">
-                        <Eye className="w-5 h-5" />
-                        <p className="text-xs">No HTML body available for this email.</p>
-                      </div>
-                    )
-                  ) : activeTab === "text" ? (
-                    <pre className="whitespace-pre-wrap font-sans text-sm text-zinc-700 dark:text-zinc-300">
-                      {selectedEmail.body || "(Empty plain text body)"}
-                    </pre>
-                  ) : (
-                    <pre className="whitespace-pre-wrap font-mono text-[11px] text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-950 p-3 rounded border border-zinc-200 dark:border-zinc-800">
-                      {`From: ${selectedEmail.sender}\nTo: ${selectedEmail.recipient}\nSubject: ${selectedEmail.subject}\nDate: ${selectedEmail.timestamp}\n\n${selectedEmail.body}`}
-                    </pre>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-zinc-400">
-                <MailIcon className="w-8 h-8 mb-2 text-zinc-300 dark:text-zinc-700" />
-                <p className="text-sm">Select an email from the inbox to read.</p>
-              </div>
-            )}
-          </div>
+          )}
         </div>
-      )}
+      </PageLayout>
     </motion.div>
   )
 }

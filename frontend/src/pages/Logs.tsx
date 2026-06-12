@@ -1,114 +1,217 @@
 import { motion } from "framer-motion"
-import { Terminal, Trash2, RefreshCw } from "lucide-react"
-import { useState } from "react"
+import {
+  Terminal,
+  Trash2,
+  RefreshCw,
+  Search,
+  X,
+  Pause,
+  Play,
+} from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { clearLogInbox, syncLogInbox } from "@/shared/api/ws"
+import { notify } from "@/shared/store/notifications"
+import { useLogsStore, collectLogSources, formatLogSource, logLevelClass } from "@/shared/store/logs"
+import { useTelemetryStore } from "@/shared/store/telemetry"
+import { PageLayout } from "@/shared/ui/page-layout"
+import { Button } from "@/shared/ui/button"
+import { Input } from "@/shared/ui/input"
+import { cn } from "@/shared/lib/utils"
+import { formatFullTimestamp } from "@/shared/lib/mail"
 
 export function Logs() {
-  const [selectedService, setSelectedService] = useState("system")
-  const [logLines, setLogLines] = useState<Record<string, string[]>>({
-    system: [
-      "[INFO] 09:42:00 - DevNest Daemon started on 127.0.0.1:9090",
-      "[INFO] 09:42:02 - Loaded virtual hosts configuration successfully",
-      "[INFO] 09:42:03 - Local DNS Resolver successfully bound to port 53",
-      "[INFO] 09:42:03 - SMTP Mail Interceptor listening on port 1025",
-      "[INFO] 09:42:04 - Dump Server listening on port 9912",
-      "[INFO] 09:42:05 - Connection pool established to local SQLite store",
-    ],
-    caddy: [
-      "2026/05/23 09:42:00 [INFO] caddy version: v2.8.4",
-      "2026/05/23 09:42:01 [INFO] admin: admin server listening on 127.0.0.1:2019",
-      "2026/05/23 09:42:02 [INFO] http: server listening on 127.0.0.1:80",
-      "2026/05/23 09:42:02 [INFO] https: server listening on 127.0.0.1:443",
-      "2026/05/23 09:42:02 [INFO] tls: loaded certificate for http://devnest-app.test",
-    ],
-    php: [
-      "[23-May-2026 09:42:00] NOTICE: fpm is running, pid 31499",
-      "[23-May-2026 09:42:00] NOTICE: ready to handle connections",
-      "[23-May-2026 09:45:12] NOTICE: pool web connection accepted",
-    ],
-    mysql: [
-      "2026-05-23T09:42:00.672Z 0 [System] [MY-010116] [Server] C:\\Users\\VICTUS\\.devnest\\bin\\mysql\\bin\\mysqld.exe: ready for connections.",
-      "2026-05-23T09:42:01.001Z 0 [System] [MY-011323] [Server] X Plugin ready for connections on 127.0.0.1:33060",
-    ]
-  })
+  const entries = useLogsStore((s) => s.entries)
+  const clearEntries = useLogsStore((s) => s.clearEntries)
+  const isConnected = useTelemetryStore((s) => s.isConnected)
 
-  const currentLogs = logLines[selectedService] || []
+  const [source, setSource] = useState("all")
+  const [search, setSearch] = useState("")
+  const [paused, setPaused] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  const clearLogs = () => {
-    setLogLines({ ...logLines, [selectedService]: [] })
+  const sources = useMemo(() => collectLogSources(entries), [entries])
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    return entries.filter((e) => {
+      if (source !== "all" && e.source !== source) return false
+      if (!q) return true
+      return (
+        e.message.toLowerCase().includes(q) ||
+        e.source.toLowerCase().includes(q) ||
+        e.level.toLowerCase().includes(q)
+      )
+    })
+  }, [entries, source, search])
+
+  const displayLines = useMemo(() => [...filtered].reverse(), [filtered])
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
+
+  useEffect(() => {
+    if (!paused && entries.length > 0) {
+      requestAnimationFrame(scrollToBottom)
+    }
+  }, [entries.length, paused, displayLines.length, scrollToBottom])
+
+  useEffect(() => {
+    if (isConnected) syncLogInbox()
+  }, [isConnected])
+
+  const handleRefresh = () => {
+    setRefreshing(true)
+    if (syncLogInbox()) {
+      notify.toast("Syncing logs...", "Fetching log buffer from daemon", "info")
+    }
+    setTimeout(() => setRefreshing(false), 600)
+  }
+
+  const handleClear = () => {
+    clearEntries()
+    if (clearLogInbox()) {
+      notify.success("Logs cleared", "Buffered log entries removed.", "system")
+    }
   }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
-      className="h-full flex flex-col min-h-0 space-y-6"
+    <motion.div
+      initial={{ opacity: 0, filter: "blur(4px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)" }}
+      className="h-full min-h-0 w-full"
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Logs</h1>
-          <p className="text-base text-zinc-500 dark:text-zinc-400">View live log streams from DevNest services and virtual host processes.</p>
-        </div>
+      <PageLayout noScroll className="p-3 sm:p-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2.5 sm:px-4">
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">Logs</h1>
+              <p className="text-xs text-muted-foreground">
+                Live tail from DevNest, Caddy, and Laravel <code className="text-[10px]">storage/logs/laravel.log</code>
+              </p>
+            </div>
 
-        <div className="flex items-center space-x-2">
-          <select
-            value={selectedService}
-            onChange={(e) => setSelectedService(e.target.value)}
-            className="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-md text-xs font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="system">DevNest System</option>
-            <option value="caddy">Caddy Web Server</option>
-            <option value="php">PHP-FPM</option>
-            <option value="mysql">MySQL Server</option>
-          </select>
-
-          {currentLogs.length > 0 && (
-            <button 
-              onClick={clearLogs}
-              className="p-1.5 border border-zinc-200 dark:border-zinc-800 bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-md shadow-sm transition-colors"
-              title="Clear Console Output"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      <hr className="border-zinc-200 dark:border-zinc-800" />
-
-      {/* Terminal Pane */}
-      <div className="flex-1 flex flex-col border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-zinc-950 font-mono text-[11px] leading-relaxed shadow-sm min-h-0">
-        <div className="px-4 py-2 bg-zinc-900 border-b border-zinc-850/80 flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-zinc-400">
-            <Terminal className="w-3.5 h-3.5" />
-            <span>log_output_{selectedService}.log</span>
-          </div>
-          <div className="text-zinc-500 flex items-center space-x-1">
-            <RefreshCw className="w-3 h-3 animate-spin" />
-            <span>Streaming</span>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4 text-zinc-300 custom-scrollbar whitespace-pre-wrap select-text">
-          {currentLogs.length === 0 ? (
-            <div className="text-zinc-500 italic">No log statements recorded for this session.</div>
-          ) : (
-            currentLogs.map((line, idx) => (
-              <div 
-                key={idx} 
-                className={`py-0.5 ${
-                  line.includes("[ERROR]") || line.includes("error") 
-                    ? "text-red-400" 
-                    : line.includes("[WARNING]") 
-                      ? "text-yellow-400" 
-                      : "text-zinc-350"
-                }`}
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground"
               >
-                {line}
+                {sources.map((s) => (
+                  <option key={s} value={s}>
+                    {s === "all" ? "All sources" : formatLogSource(s)}
+                  </option>
+                ))}
+              </select>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setPaused((p) => !p)}
+                title={paused ? "Resume auto-scroll" : "Pause auto-scroll"}
+              >
+                {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleRefresh}
+                disabled={!isConnected}
+                title="Sync logs"
+              >
+                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              </Button>
+
+              {entries.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={handleClear}
+                  title="Clear log buffer"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-b border-border px-3 py-2 sm:px-4">
+            <div className="relative max-w-md">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Filter log lines..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-8 pl-8 text-xs"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950 font-mono text-[11px] leading-relaxed">
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-900 px-4 py-2 text-zinc-400">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5" />
+                <span>
+                  {source === "all" ? "all_sources.log" : `${source.replace(":", "_")}.log`}
+                </span>
               </div>
-            ))
-          )}
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="tabular-nums">{displayLines.length} lines</span>
+                <span className={cn("flex items-center gap-1", isConnected ? "text-emerald-500" : "text-red-400")}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", isConnected ? "bg-emerald-500" : "bg-red-400")} />
+                  {isConnected ? (paused ? "Paused" : "Live") : "Offline"}
+                </span>
+              </div>
+            </div>
+
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-4 custom-scrollbar select-text">
+              {displayLines.length === 0 ? (
+                <div className="text-zinc-500 italic">
+                  {isConnected
+                    ? "No log lines yet. Daemon, Caddy, and Laravel logs appear here as they are written."
+                    : "Connect to the daemon to stream logs."}
+                </div>
+              ) : (
+                displayLines.map((entry) => (
+                  <div key={entry.id} className="group flex gap-2 py-0.5 hover:bg-zinc-900/40">
+                    <span className="shrink-0 text-zinc-600 tabular-nums">
+                      {formatFullTimestamp(entry.timestamp).split(", ").pop()}
+                    </span>
+                    <span className="shrink-0 w-16 truncate text-zinc-500" title={formatLogSource(entry.source)}>
+                      [{entry.source.split(":")[0]}]
+                    </span>
+                    <span className={cn("shrink-0 w-14 font-semibold", logLevelClass(entry.level))}>
+                      {entry.level}
+                    </span>
+                    <span className={cn("min-w-0 flex-1 whitespace-pre-wrap break-all", logLevelClass(entry.level))}>
+                      {entry.message}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      </PageLayout>
     </motion.div>
   )
 }

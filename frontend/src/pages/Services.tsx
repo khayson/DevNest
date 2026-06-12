@@ -1,42 +1,20 @@
 import { motion } from "framer-motion"
-import { Play, Square as Stop, RefreshCw, Globe, Server, Database, Mail, Terminal } from "lucide-react"
+import { Play, Square as Stop, RefreshCw } from "lucide-react"
 import { useTelemetryStore } from "../shared/store/telemetry"
 import { sendCommand } from "../shared/api/ws"
-
-const getServiceIcon = (id: string) => {
-  switch (id) {
-    case "caddy": return <Globe className="w-4 h-4 text-blue-500" />
-    case "php": return <Server className="w-4 h-4 text-indigo-500" />
-    case "mysql": return <Database className="w-4 h-4 text-orange-500" />
-    case "postgres": return <Database className="w-4 h-4 text-blue-400" />
-    case "redis": return <Database className="w-4 h-4 text-red-500" />
-    case "mail":
-    case "embedded-mail-server": return <Mail className="w-4 h-4 text-green-500" />
-    case "embedded-dump-server": return <Terminal className="w-4 h-4 text-pink-500" />
-    case "dns": return <Globe className="w-4 h-4 text-cyan-500" />
-    default: return <Server className="w-4 h-4 text-zinc-500" />
-  }
-}
+import { startServiceWithFeedback } from "../shared/lib/service-actions"
+import { notify } from "../shared/store/notifications"
+import { LIVE_SERVICES, countRunningServices, getServiceBrandStyle } from "@/shared/lib/live-services"
+import { cn } from "@/shared/lib/utils"
 
 export function Services() {
   const rawServices = useTelemetryStore((state) => state.services) || {}
   const isConnected = useTelemetryStore((state) => state.isConnected)
+  const runningCount = countRunningServices(rawServices)
 
-  const expectedServices = [
-    { id: "caddy", name: "Caddy Web Server", version: "v2.8.4", port: "80, 443" },
-    { id: "php", name: "PHP-FPM 8.3", version: "8.3.0", port: "9000" },
-    { id: "mysql", name: "MySQL Server", version: "8.0", port: "3306" },
-    { id: "postgres", name: "PostgreSQL", version: "16", port: "5432" },
-    { id: "redis", name: "Redis", version: "7.2", port: "6379" },
-    { id: "embedded-mail-server", name: "Mail Interceptor Server", version: "1.0.0", port: "1025" },
-    { id: "embedded-dump-server", name: "Dump Server", version: "1.0.0", port: "9912" },
-    { id: "dns", name: "Local DNS Resolver", version: "1.0", port: "53" },
-  ]
-
-  const services = expectedServices.map(s => {
-    // Check if running by checking if we have metrics for it
+  const services = LIVE_SERVICES.map((s) => {
     const metric = rawServices[s.id]
-    const isRunning = metric !== undefined && (metric.MemoryBytes > 0 || metric.CpuPercent > 0)
+    const isRunning = metric?.state === "running"
     return { ...s, isRunning }
   })
 
@@ -49,12 +27,18 @@ export function Services() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Services</h1>
-          <p className="text-base text-zinc-500 dark:text-zinc-400">Manage individual binaries and server processes.</p>
+          <p className="text-base text-zinc-500 dark:text-zinc-400">
+            {isConnected
+              ? `${runningCount}/${LIVE_SERVICES.length} daemon services running`
+              : "Manage live daemon services."}
+          </p>
         </div>
 
         <div className="flex items-center space-x-2.5">
           <button 
-            onClick={() => sendCommand("start_all")}
+            onClick={() => {
+              if (sendCommand("start_all")) notify.info("Starting all services…", undefined, "service")
+            }}
             disabled={!isConnected}
             className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-950 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
           >
@@ -62,7 +46,9 @@ export function Services() {
             <span>Start All</span>
           </button>
           <button 
-            onClick={() => sendCommand("stop_all")}
+            onClick={() => {
+              if (sendCommand("stop_all")) notify.info("Stopping all services…", undefined, "service")
+            }}
             disabled={!isConnected}
             className="px-4 py-2 bg-white hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
           >
@@ -74,7 +60,6 @@ export function Services() {
 
       <hr className="border-zinc-200 dark:border-zinc-800" />
 
-      {/* Services Table */}
       <div className="flex-1 overflow-auto border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900/50 shadow-sm min-h-0 custom-scrollbar">
         <table className="w-full border-collapse text-left text-sm text-zinc-500 dark:text-zinc-400">
           <thead className="bg-zinc-50 dark:bg-zinc-900 text-[13px] font-semibold uppercase text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 sticky top-0">
@@ -87,7 +72,10 @@ export function Services() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {services.map((service) => (
+            {services.map((service) => {
+              const Icon = service.icon
+              const brand = getServiceBrandStyle(service, service.isRunning)
+              return (
               <tr key={service.id} className="hover:bg-zinc-50/55 dark:hover:bg-zinc-800/20 transition-colors">
                 <td className="px-6 py-5">
                   <div className="flex items-center space-x-2.5">
@@ -99,10 +87,20 @@ export function Services() {
                 </td>
                 <td className="px-6 py-5">
                   <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-zinc-100 dark:bg-zinc-850 rounded border border-zinc-200/50 dark:border-zinc-700/50">
-                      {getServiceIcon(service.id)}
+                    <div
+                      className={cn(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all",
+                        brand.bg,
+                        brand.border,
+                        service.isRunning && service.brand.active.glow
+                      )}
+                    >
+                      <Icon className={cn("h-[18px] w-[18px]", brand.icon)} strokeWidth={2.25} />
                     </div>
-                    <span className="font-bold text-zinc-800 dark:text-zinc-200 text-sm">{service.name}</span>
+                    <div className="min-w-0">
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200 text-sm block">{service.name}</span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-500 truncate block">{service.hint}</span>
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-5 font-mono text-sm text-zinc-500">
@@ -114,7 +112,7 @@ export function Services() {
                 <td className="px-6 py-5 text-right">
                   <div className="flex items-center justify-end space-x-2">
                     <button 
-                      onClick={() => sendCommand("start_service", { serviceId: service.id })}
+                      onClick={() => startServiceWithFeedback(service.id)}
                       disabled={service.isRunning || !isConnected}
                       className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-green-600 dark:hover:text-green-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                       title="Start Service"
@@ -122,7 +120,11 @@ export function Services() {
                       <Play className="w-4.5 h-4.5" />
                     </button>
                     <button 
-                      onClick={() => sendCommand("restart_service", { serviceId: service.id })}
+                      onClick={() => {
+                        if (sendCommand("restart_service", { serviceId: service.id })) {
+                          notify.info(`Restarting ${service.name}…`, undefined, "service")
+                        }
+                      }}
                       disabled={!service.isRunning || !isConnected}
                       className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                       title="Restart Service"
@@ -130,7 +132,11 @@ export function Services() {
                       <RefreshCw className="w-4.5 h-4.5" />
                     </button>
                     <button 
-                      onClick={() => sendCommand("stop_service", { serviceId: service.id })}
+                      onClick={() => {
+                        if (sendCommand("stop_service", { serviceId: service.id })) {
+                          notify.info(`Stopping ${service.name}…`, undefined, "service")
+                        }
+                      }}
                       disabled={!service.isRunning || !isConnected}
                       className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                       title="Stop Service"
@@ -140,7 +146,7 @@ export function Services() {
                   </div>
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

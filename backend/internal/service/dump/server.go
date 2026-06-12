@@ -1,11 +1,11 @@
 package dump
 
 import (
-	"bufio"
-	"bytes"
 	"devnest/internal/service"
 	"devnest/internal/telemetry"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -56,6 +56,13 @@ func (s *Store) GetAll() []CapturedDump {
 	result := make([]CapturedDump, len(s.dumps))
 	copy(result, s.dumps)
 	return result
+}
+
+// Clear removes all captured dumps.
+func (s *Store) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dumps = make([]CapturedDump, 0, s.maxSize)
 }
 
 // Server implements an embedded TCP dump server compatible with Symfony Var-Dumper.
@@ -157,48 +164,54 @@ func (s *Server) serve() {
 	}
 }
 
-// handleConnection reads the incoming dump payload.
+// handleConnection reads the incoming dump payload until the client closes the connection.
 func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
 	remoteAddr := conn.RemoteAddr().String()
 
-	var buffer bytes.Buffer
-	scanner := bufio.NewScanner(conn)
-	// Increase buffer size for large Var-Dumper payloads (up to 1MB)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		buffer.Write(scanner.Bytes())
-		buffer.WriteString("\n")
-	}
-
-	if err := scanner.Err(); err != nil {
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	payloadBytes, err := io.ReadAll(io.LimitReader(conn, 1024*1024))
+	if err != nil && !errors.Is(err, io.EOF) && !isConnClosed(err) {
 		log.Printf("[Dump Server] Read error from %s: %v", remoteAddr, err)
 		return
 	}
 
-	payload := buffer.String()
-	if len(payload) > 0 {
-		s.store.mu.Lock()
-		s.store.sequence++
-		dumpID := fmt.Sprintf("DUMP-%06d", s.store.sequence)
-		s.store.mu.Unlock()
-
-		captured := CapturedDump{
-			ID:        dumpID,
-			Payload:   payload,
-			Size:      len(payload),
-			Source:    remoteAddr,
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-
-		s.store.Add(captured)
-		log.Printf("[Dump Server] %s: Received %d bytes from %s", dumpID, captured.Size, remoteAddr)
-
-		if s.onCapture != nil {
-			s.onCapture(captured)
-		}
+	payload := string(payloadBytes)
+	if len(payload) == 0 {
+		log.Printf("[Dump Server] Empty payload from %s (ignored)", remoteAddr)
+		return
 	}
+
+	s.store.mu.Lock()
+	s.store.sequence++
+	dumpID := fmt.Sprintf("DUMP-%06d", s.store.sequence)
+	s.store.mu.Unlock()
+
+	captured := CapturedDump{
+		ID:        dumpID,
+		Payload:   payload,
+		Size:      len(payload),
+		Source:    remoteAddr,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	s.store.Add(captured)
+	log.Printf("[Dump Server] %s: Received %d bytes from %s", dumpID, captured.Size, remoteAddr)
+
+	if s.onCapture != nil {
+		s.onCapture(captured)
+	}
+}
+
+func isConnClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Err.Error() == "use of closed network connection"
+	}
+	return false
 }

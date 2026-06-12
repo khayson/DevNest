@@ -10,11 +10,15 @@ import (
 // DevNestConfig represents the persisted state of the environment.
 type DevNestConfig struct {
 	ActivePHPVersion  string            `json:"active_php_version"`
-	RegisteredSites   map[string]string `json:"registered_sites"`    // Map of domain -> local path
-	CustomPorts       map[string]int    `json:"custom_ports"`        // Map of service -> port
-	LaunchOnStartup   bool              `json:"launch_on_startup"`   // Automatically launch DevNest at login
-	AutoStartServices bool              `json:"auto_start_services"` // Automatically start services on launch
-	Theme             string            `json:"theme"`               // system, light, dark
+	ActivePHPPath     string            `json:"active_php_path,omitempty"`
+	PHPIniDirectives  map[string]string `json:"php_ini_directives,omitempty"`
+	RegisteredSites   map[string]string `json:"registered_sites"` // legacy domain -> path
+	Sites             []SiteEntry       `json:"sites"`
+	CustomPorts       map[string]int    `json:"custom_ports"`
+	LaunchOnStartup   bool              `json:"launch_on_startup"`
+	AutoStartServices bool              `json:"auto_start_services"`
+	Theme             string            `json:"theme"`
+	CaddyBinary       string            `json:"caddy_binary,omitempty"`
 }
 
 type Store struct {
@@ -39,6 +43,7 @@ func NewStore() (*Store, error) {
 		filePath: filepath.Join(configDir, "devnest.json"),
 		data: DevNestConfig{
 			RegisteredSites:   make(map[string]string),
+			Sites:             []SiteEntry{},
 			CustomPorts:       make(map[string]int),
 			LaunchOnStartup:   true,
 			AutoStartServices: true,
@@ -53,6 +58,11 @@ func NewStore() (*Store, error) {
 		} else {
 			return nil, err
 		}
+	}
+
+	store.migrateLegacySites()
+	if len(store.data.Sites) > 0 {
+		_ = store.Save()
 	}
 
 	return store, nil

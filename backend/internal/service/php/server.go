@@ -21,12 +21,12 @@ type Server struct {
 	mu         sync.Mutex
 }
 
-// NewServer initializes a new PHP process manager.
-func NewServer(id, version, binaryPath string, port int) *Server {
+// NewServer initializes a new PHP CGI process manager.
+func NewServer(id, version, cgiPath string, port int) *Server {
 	return &Server{
 		id:         id,
 		version:    version,
-		binaryPath: binaryPath,
+		binaryPath: cgiPath,
 		port:       port,
 		state:      service.StateStopped,
 	}
@@ -35,6 +35,7 @@ func NewServer(id, version, binaryPath string, port int) *Server {
 func (s *Server) ID() string      { return s.id }
 func (s *Server) Name() string    { return fmt.Sprintf("PHP %s", s.version) }
 func (s *Server) Version() string { return s.version }
+func (s *Server) Port() int       { return s.port }
 
 // Configure could generate php.ini settings specifically for this project/environment.
 func (s *Server) Configure() error {
@@ -134,8 +135,6 @@ func (s *Server) GetMetrics() (*telemetry.ProcessMetrics, error) {
 	}
 
 	return &telemetry.ProcessMetrics{
-		PID:         int32(s.cmd.Process.Pid),
-		CPUPercent:  0.8,
-		MemoryBytes: 30000000,
+		PID: int32(s.cmd.Process.Pid),
 	}, nil
 }

@@ -2,7 +2,6 @@ package service
 
 import (
 	"devnest/internal/telemetry"
-	"fmt"
 	"log"
 	"sync"
 )
@@ -28,25 +27,29 @@ func (m *Manager) Register(srv Service) {
 	log.Printf("[Manager] Registered service: %s (%s)", srv.Name(), srv.Version())
 }
 
-// StartAll starts all registered services.
+// StartAll starts all registered services. Failures are logged but do not block other services.
 func (m *Manager) StartAll() error {
 	m.mu.RLock()
-	// Create a copy of the slice to avoid holding the lock during starts
 	var svcs []Service
 	for _, s := range m.services {
 		svcs = append(svcs, s)
 	}
 	m.mu.RUnlock()
 
+	var lastErr error
 	for _, s := range svcs {
 		if err := s.Configure(); err != nil {
-			return fmt.Errorf("failed to configure %s: %w", s.ID(), err)
+			log.Printf("[Manager] Failed to configure %s: %v", s.ID(), err)
+			lastErr = err
+			continue
 		}
 		if err := s.Start(); err != nil {
-			return fmt.Errorf("failed to start %s: %w", s.ID(), err)
+			log.Printf("[Manager] Failed to start %s: %v", s.ID(), err)
+			lastErr = err
+			continue
 		}
 	}
-	return nil
+	return lastErr
 }
 
 // StopAll stops all registered services gracefully.

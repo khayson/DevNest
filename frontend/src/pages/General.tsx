@@ -1,175 +1,162 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { motion } from "framer-motion"
-import { Play, Square as Stop, Check } from "lucide-react"
-import { sendCommand } from "../shared/api/ws"
-import { useTelemetryStore } from "../shared/store/telemetry"
-import { useConfigStore } from "../shared/store/config"
+import { GripVertical, RotateCcw } from "lucide-react"
+import { sendCommand, applyTheme } from "@/shared/api/ws"
+import { useTelemetryStore } from "@/shared/store/telemetry"
+import { useConfigStore } from "@/shared/store/config"
+import { PageLayout } from "@/shared/ui/page-layout"
+import { SettingsGroup } from "@/shared/ui/settings-group"
+import { Button } from "@/shared/ui/button"
+import { ReorderableCard, ReorderableCardList } from "@/shared/ui/reorderable-card"
+import {
+  type GeneralCardId,
+  DEFAULT_GENERAL_CARD_ORDER,
+  loadGeneralCardOrder,
+  saveGeneralCardOrder,
+  GENERAL_CARD_LABELS,
+} from "@/shared/lib/general-card-order"
+import {
+  StatusHero,
+  ServiceRow,
+  ThemePicker,
+  StartupSettings,
+  ConnectionPanel,
+} from "@/pages/general/general-sections"
+import { LIVE_SERVICES, countRunningServices } from "@/shared/lib/live-services"
 
 export function General() {
-  const isConnected = useTelemetryStore((state) => state.isConnected)
-  const services = useTelemetryStore((state) => state.services) || {}
-  const config = useConfigStore((state) => state.config)
+  const isConnected = useTelemetryStore((s) => s.isConnected)
+  const services = useTelemetryStore((s) => s.services)
+  const cpuUsage = useTelemetryStore((s) => s.telemetry.cpuUsage)
+  const memoryRss = useTelemetryStore((s) => s.telemetry.memoryRss)
+  const config = useConfigStore((s) => s.config)
+  const updateSettings = useConfigStore((s) => s.updateSettings)
+
+  const [cardOrder, setCardOrder] = useState<GeneralCardId[]>(loadGeneralCardOrder)
+
+  useEffect(() => {
+    saveGeneralCardOrder(cardOrder)
+  }, [cardOrder])
 
   const launchOnStartup = config?.launch_on_startup ?? true
   const autoStartServices = config?.auto_start_services ?? true
   const theme = config?.theme ?? "system"
 
-  const activeServicesCount = Object.values(services).filter(
-    (m: any) => m && (m.MemoryBytes > 0 || m.CpuPercent > 0 || m.PID > 0)
-  ).length
+  const runningCount = countRunningServices(services)
 
-  const handleToggleLaunch = (val: boolean) => {
-    sendCommand("update_settings", {
-      launch_on_startup: val,
-      auto_start_services: autoStartServices,
-      theme: theme,
-    })
+  const pushSettings = (patch: {
+    launch_on_startup?: boolean
+    auto_start_services?: boolean
+    theme?: "system" | "light" | "dark"
+  }) => {
+    const next = {
+      launch_on_startup: patch.launch_on_startup ?? launchOnStartup,
+      auto_start_services: patch.auto_start_services ?? autoStartServices,
+      theme: patch.theme ?? theme,
+    }
+    updateSettings(next)
+    if (patch.theme) applyTheme(patch.theme)
+    sendCommand("update_settings", next)
   }
 
-  const handleToggleAutoStart = (val: boolean) => {
-    sendCommand("update_settings", {
-      launch_on_startup: launchOnStartup,
-      auto_start_services: val,
-      theme: theme,
-    })
-  }
-
-  const handleThemeChange = (newTheme: "system" | "light" | "dark") => {
-    sendCommand("update_settings", {
-      launch_on_startup: launchOnStartup,
-      auto_start_services: autoStartServices,
-      theme: newTheme,
-    })
-  }
+  const cardContent = useMemo(
+    (): Record<GeneralCardId, ReactNode> => ({
+      services: (
+        <SettingsGroup
+          title="Live services"
+          description="Mail trap, dump server, and DNS — wired to the Go daemon."
+        >
+          {LIVE_SERVICES.map((service) => (
+            <ServiceRow
+              key={service.id}
+              service={service}
+              isRunning={services[service.id]?.state === "running"}
+              isConnected={isConnected}
+            />
+          ))}
+        </SettingsGroup>
+      ),
+      startup: (
+        <StartupSettings
+          isConnected={isConnected}
+          launchOnStartup={launchOnStartup}
+          autoStartServices={autoStartServices}
+          onLaunchChange={(v) => pushSettings({ launch_on_startup: v })}
+          onAutoStartChange={(v) => pushSettings({ auto_start_services: v })}
+        />
+      ),
+      appearance: (
+        <SettingsGroup
+          title="Appearance"
+          description="Saved to ~/.devnest/devnest.json and applied immediately."
+        >
+          <ThemePicker
+            theme={theme}
+            disabled={!isConnected}
+            onChange={(t) => pushSettings({ theme: t })}
+          />
+        </SettingsGroup>
+      ),
+      connection: <ConnectionPanel />,
+    }),
+    [
+      isConnected,
+      services,
+      launchOnStartup,
+      autoStartServices,
+      theme,
+    ]
+  )
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
-      className="h-full flex flex-col min-h-0 space-y-6"
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18 }}
+      className="h-full min-h-0 w-full"
     >
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">General</h1>
-        <p className="text-base text-zinc-500 dark:text-zinc-400">Configure global preferences and launch settings.</p>
-      </div>
-
-      <hr className="border-zinc-200 dark:border-zinc-800" />
-
-      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0 space-y-8 pb-8">
-        {/* Global Status Banner */}
-        <div className={`p-5 rounded-lg border transition-all duration-300 flex items-center justify-between
-          ${!isConnected 
-            ? "bg-red-50/50 border-red-200/50 dark:bg-red-950/10 dark:border-red-900/20" 
-            : activeServicesCount > 0 
-              ? "bg-green-50/50 border-green-200/50 dark:bg-green-950/10 dark:border-green-900/20" 
-              : "bg-zinc-50 dark:bg-zinc-900/50 border-zinc-200 dark:border-zinc-800"
-          }`}
-        >
-          <div className="flex items-center space-x-3.5">
-            <div className={`h-3 w-3 rounded-full transition-all duration-300
-              ${!isConnected 
-                ? "bg-red-500" 
-                : activeServicesCount > 0 
-                  ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]" 
-                  : "bg-zinc-400"
-              }`} 
-            />
-            <div>
-              <div className="font-bold text-base text-zinc-800 dark:text-zinc-200">
-                {!isConnected 
-                  ? "DevNest Daemon is Offline" 
-                  : activeServicesCount > 0 
-                    ? "Services are Running" 
-                    : "Services are Idle / Stopped"
-                }
-              </div>
-              <div className="text-sm text-zinc-500">
-                {!isConnected 
-                  ? "Attempting to reconnect to background daemon on 127.0.0.1:9090..." 
-                  : `${activeServicesCount} services active (Caddy, DNS, SMTP, Dump, etc.)`
-                }
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2.5">
-            <button 
-              onClick={() => sendCommand("start_all")}
-              disabled={!isConnected}
-              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-950 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
+      <PageLayout>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Daemon status, services, startup, and appearance.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <GripVertical className="h-3.5 w-3.5" />
+              Drag cards to rearrange
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setCardOrder([...DEFAULT_GENERAL_CARD_ORDER])}
             >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Start All</span>
-            </button>
-            <button 
-              onClick={() => sendCommand("stop_all")}
-              disabled={!isConnected}
-              className="px-4 py-2 bg-white hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
-            >
-              <Stop className="w-4 h-4" />
-              <span>Stop All</span>
-            </button>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset layout
+            </Button>
           </div>
         </div>
 
-        {/* Preferences Settings */}
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-base font-bold text-zinc-800 dark:text-zinc-200 mb-4">Startup Behavior</h2>
-            <div className="space-y-4">
-              <label className="flex items-start space-x-3.5 cursor-pointer group">
-                <input 
-                  type="checkbox"
-                  checked={launchOnStartup}
-                  onChange={(e) => handleToggleLaunch(e.target.checked)}
-                  className="mt-1 rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500 bg-white dark:bg-zinc-800 h-4.5 w-4.5"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-zinc-850 dark:text-zinc-200">Automatically launch DevNest at login</span>
-                  <p className="text-xs text-zinc-500 mt-0.5">Launches the DevNest control panel and background daemon when you boot your machine.</p>
-                </div>
-              </label>
+        <StatusHero
+          isConnected={isConnected}
+          runningCount={runningCount}
+          cpuUsage={cpuUsage}
+          memoryRss={memoryRss}
+        />
 
-              <label className="flex items-start space-x-3.5 cursor-pointer group">
-                <input 
-                  type="checkbox"
-                  checked={autoStartServices}
-                  onChange={(e) => handleToggleAutoStart(e.target.checked)}
-                  className="mt-1 rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500 bg-white dark:bg-zinc-800 h-4.5 w-4.5"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-zinc-850 dark:text-zinc-200">Automatically start services on launch</span>
-                  <p className="text-xs text-zinc-500 mt-0.5">Starts Caddy, PHP, MySQL, and other checked services as soon as the application opens.</p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <hr className="border-zinc-200 dark:border-zinc-800" />
-
-          {/* Theme Settings */}
-          <div>
-            <h2 className="text-base font-bold text-zinc-800 dark:text-zinc-200 mb-2">Interface Theme</h2>
-            <p className="text-xs text-zinc-500 mb-4">Choose how you want DevNest to look on your system.</p>
-            
-            <div className="grid grid-cols-3 gap-4 max-w-md">
-              {(["system", "light", "dark"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => handleThemeChange(t)}
-                  className={`py-4 px-5 rounded-lg border text-sm font-bold transition-all text-center flex flex-col items-center justify-center space-y-1.5
-                    ${theme === t 
-                      ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400" 
-                      : "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 text-zinc-700 dark:text-zinc-300"
-                    }`}
-                >
-                  <span className="capitalize">{t}</span>
-                  {theme === t && <Check className="w-4 h-4 text-blue-500" />}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+        <ReorderableCardList values={cardOrder} onReorder={setCardOrder}>
+          {cardOrder.map((id) => (
+            <ReorderableCard
+              key={id}
+              value={id}
+              label={GENERAL_CARD_LABELS[id]}
+            >
+              {cardContent[id]}
+            </ReorderableCard>
+          ))}
+        </ReorderableCardList>
+      </PageLayout>
     </motion.div>
   )
 }

@@ -50,7 +50,7 @@ func (s *Store) Add(email CapturedEmail) {
 	s.emails = append(s.emails, email)
 }
 
-// GetAll returns a copy of all stored emails.
+// GetAll returns a copy of all stored emails (newest last).
 func (s *Store) GetAll() []CapturedEmail {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -58,6 +58,13 @@ func (s *Store) GetAll() []CapturedEmail {
 	result := make([]CapturedEmail, len(s.emails))
 	copy(result, s.emails)
 	return result
+}
+
+// Clear removes all captured emails.
+func (s *Store) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emails = make([]CapturedEmail, 0, s.maxSize)
 }
 
 // Server implements a basic embedded SMTP server (Mailpit-like interceptor).

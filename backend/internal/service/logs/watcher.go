@@ -51,6 +51,14 @@ func (s *Store) Add(entry LogEntry) {
 	s.logs = append(s.logs, entry)
 }
 
+// Clear removes all stored log entries.
+func (s *Store) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logs = make([]LogEntry, 0, s.maxSize)
+	s.sequence = 0
+}
+
 // GetAll returns a copy of all stored logs.
 func (s *Store) GetAll() []LogEntry {
 	s.mu.RLock()
@@ -109,7 +117,37 @@ func (w *Watcher) Watch(filePath, source string) error {
 
 	w.files[filePath] = source
 	log.Printf("[LogWatcher] Now watching %s as %s", filePath, source)
+
+	// Seed store with recent lines so the UI is not empty on connect (no WS broadcast for history)
+	tailInitialLines(filePath, source, 150, w.store)
 	return nil
+}
+
+func tailInitialLines(filePath, source string, maxLines int, store *Store) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
+		if len(lines) > maxLines {
+			lines = lines[1:]
+		}
+	}
+
+	w := &Watcher{store: store}
+	for _, line := range lines {
+		entry := w.parseLine(line, source)
+		store.Add(entry)
+	}
 }
 
 // Start begins the log watching loop.
@@ -202,11 +240,21 @@ func (w *Watcher) readNewLines(filePath, source string, cursors map[string]int64
 // parseLine extracts level and timestamp from standard log formats (like Laravel's).
 func (w *Watcher) parseLine(line, source string) LogEntry {
 	level := "INFO"
-	if strings.Contains(line, ".ERROR:") || strings.Contains(strings.ToLower(line), "error") {
+	lower := strings.ToLower(line)
+
+	if strings.HasPrefix(strings.TrimSpace(line), "{") {
+		if strings.Contains(lower, `"level":"error"`) || strings.Contains(lower, `"level": "error"`) {
+			level = "ERROR"
+		} else if strings.Contains(lower, `"level":"warn"`) || strings.Contains(lower, `"level": "warn"`) {
+			level = "WARNING"
+		} else if strings.Contains(lower, `"level":"debug"`) {
+			level = "DEBUG"
+		}
+	} else if strings.Contains(line, ".ERROR:") || strings.Contains(lower, " error:") || strings.HasPrefix(lower, "error:") {
 		level = "ERROR"
-	} else if strings.Contains(line, ".WARNING:") || strings.Contains(strings.ToLower(line), "warning") {
+	} else if strings.Contains(line, ".WARNING:") || strings.Contains(lower, "warning") {
 		level = "WARNING"
-	} else if strings.Contains(line, ".DEBUG:") || strings.Contains(strings.ToLower(line), "debug") {
+	} else if strings.Contains(line, ".DEBUG:") || strings.Contains(lower, "debug") {
 		level = "DEBUG"
 	}
 
