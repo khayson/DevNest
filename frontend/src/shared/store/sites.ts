@@ -16,17 +16,59 @@ export interface SiteEntry {
   php_cgi_port?: number
 }
 
+export interface ParkedPath {
+  id: string
+  name?: string
+  path: string
+}
+
+export interface DiscoveredSite {
+  name: string
+  domain: string
+  path: string
+  port: number
+  type: SiteType
+  already_registered: boolean
+}
+
 interface SitesState {
   sites: SiteEntry[]
   caddyAvailable: boolean
-  setSites: (sites: SiteEntry[], caddyAvailable?: boolean) => void
+  parkedPaths: ParkedPath[]
+  suggestedParkedPaths: string[]
+  lastParkedScan: DiscoveredSite[]
+  lastParkedScanPath: string
+  loading: boolean
+  scanning: boolean
+  busy: "rescan" | "import" | "park" | "save" | null
+  quickParkingPath: string | null
+  setSites: (sites: SiteEntry[], caddyAvailable?: boolean, parkedPaths?: ParkedPath[], suggested?: string[]) => void
+  setParkedScan: (path: string, sites: DiscoveredSite[]) => void
+  setLoading: (loading: boolean) => void
+  setScanning: (scanning: boolean) => void
+  setBusy: (busy: SitesState["busy"]) => void
+  setQuickParkingPath: (path: string | null) => void
 }
 
 export const useSitesStore = create<SitesState>((set) => ({
   sites: [],
   caddyAvailable: false,
-  setSites: (sites, caddyAvailable = false) =>
-    set({ sites, caddyAvailable }),
+  parkedPaths: [],
+  suggestedParkedPaths: [],
+  lastParkedScan: [],
+  lastParkedScanPath: "",
+  loading: false,
+  scanning: false,
+  busy: null,
+  quickParkingPath: null,
+  setSites: (sites, caddyAvailable = false, parkedPaths = [], suggestedParkedPaths = []) =>
+    set({ sites, caddyAvailable, parkedPaths, suggestedParkedPaths, loading: false, busy: null, quickParkingPath: null }),
+  setParkedScan: (lastParkedScanPath, lastParkedScan) =>
+    set({ lastParkedScanPath, lastParkedScan, scanning: false }),
+  setLoading: (loading) => set({ loading }),
+  setScanning: (scanning) => set({ scanning }),
+  setBusy: (busy) => set({ busy }),
+  setQuickParkingPath: (quickParkingPath) => set({ quickParkingPath }),
 }))
 
 export function siteUrl(site: SiteEntry): string {

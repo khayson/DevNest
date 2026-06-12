@@ -16,18 +16,22 @@ import (
 var globalSQLite *sqlite.Manager
 
 type dbServiceInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	Port      int    `json:"port"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	ConnStr   string `json:"conn_str"`
-	Available bool   `json:"available"`
-	Binary    string `json:"binary,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Port        int    `json:"port"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	ConnStr     string `json:"conn_str"`
+	Available   bool   `json:"available"`
+	Binary      string `json:"binary,omitempty"`
+	External    bool   `json:"external,omitempty"`
+	RunningNote string `json:"running_note,omitempty"`
 }
 
 func registerDatabaseServices() {
+	applyRuntimeOverridesFromConfig()
+
 	mysqlBin, mysqlErr := database.ResolveMySQL()
 	if mysqlErr != nil {
 		log.Printf("[Daemon] MySQL not registered: binary not found (%v). Install MySQL or add mysqld to PATH.", mysqlErr)
@@ -87,18 +91,45 @@ func buildDatabaseSyncPayload() map[string]interface{} {
 	pgOK := pgErr == nil
 	redisOK := redisErr == nil
 
+	mysqlExternal := mysqlOK && database.PortInUse("127.0.0.1", database.DefaultMySQLPort)
+	mysqlNote := ""
+	if mysqlExternal {
+		if database.IsExternalMySQLBinary(mysqlBin) {
+			mysqlNote = "XAMPP/Laragon MySQL already running on port 3306"
+		} else {
+			mysqlNote = "Existing MySQL already running on port 3306"
+		}
+	}
+
+	pgExternal := pgOK && database.PortInUse("127.0.0.1", database.DefaultPostgresPort)
+	pgNote := ""
+	if pgExternal {
+		if database.IsExternalPostgresBinary(pgBin) {
+			pgNote = "Existing PostgreSQL install already running on port 5432"
+		} else {
+			pgNote = "Existing PostgreSQL already running on port 5432"
+		}
+	}
+
+	pgVersion := "16"
+	if pgOK {
+		pgVersion = database.PostgresVersionLabel(pgBin)
+	}
+
 	services := []dbServiceInfo{
 		{
 			ID: "mysql", Name: "MySQL Server", Version: "8.0",
 			Port: database.DefaultMySQLPort, Username: "root",
 			Password: "No password (local dev)", ConnStr: "mysql://root@127.0.0.1:3306/devnest",
 			Available: mysqlOK, Binary: mysqlBin,
+			External: mysqlExternal, RunningNote: mysqlNote,
 		},
 		{
-			ID: "postgres", Name: "PostgreSQL", Version: "16",
+			ID: "postgres", Name: "PostgreSQL", Version: pgVersion,
 			Port: database.DefaultPostgresPort, Username: "devnest",
 			Password: "No password (trust auth)", ConnStr: "postgresql://devnest@127.0.0.1:5432/devnest",
 			Available: pgOK, Binary: pgBin,
+			External: pgExternal, RunningNote: pgNote,
 		},
 		{
 			ID: "redis", Name: "Redis", Version: "7.0",

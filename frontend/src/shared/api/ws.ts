@@ -1,11 +1,16 @@
 import { useTelemetryStore } from "../store/telemetry";
 import { useCapturedStore } from "../store/captured";
 import { useConfigStore } from "../store/config";
-import { useSitesStore, type SiteEntry } from "../store/sites";
+import { useSitesStore, type SiteEntry, type DiscoveredSite } from "../store/sites";
 import { useLogsStore } from "../store/logs";
 import { usePHPStore, type PHPSyncPayload } from "../store/php";
-import { useDatabasesStore, type DatabaseSyncPayload } from "../store/databases";
+import { useDatabasesStore, type DatabaseSyncPayload, type SchemaResult, type TableStructureResult, type TableDataResult, type QueryResult, type RowMutationResult } from "../store/databases";
+import { useStacksStore, type StacksSyncPayload } from "../store/stacks";
 import { useAboutStore, type AboutSyncPayload } from "../store/about";
+import { useQueuesStore, type QueueSyncPayload } from "../store/queues";
+import { useSchedulerStore, type SchedulerSyncPayload } from "../store/scheduler";
+import { useWorkerOutputStore, type WorkerOutputLine } from "../store/worker-output";
+import { useNodeStore, type NodeSyncPayload } from "../store/node";
 import { notify } from "../store/notifications";
 import { checkPendingServiceStarts } from "../lib/service-actions";
 
@@ -43,7 +48,11 @@ export function connectToDaemon() {
     ws?.send(JSON.stringify({ type: "command", command: "get_log_inbox", payload: {} }));
     ws?.send(JSON.stringify({ type: "command", command: "get_php", payload: {} }));
     ws?.send(JSON.stringify({ type: "command", command: "get_databases", payload: {} }));
+    ws?.send(JSON.stringify({ type: "command", command: "get_stacks", payload: {} }));
     ws?.send(JSON.stringify({ type: "command", command: "get_about", payload: {} }));
+    ws?.send(JSON.stringify({ type: "command", command: "get_queues", payload: {} }));
+    ws?.send(JSON.stringify({ type: "command", command: "get_scheduler", payload: {} }));
+    ws?.send(JSON.stringify({ type: "command", command: "get_node", payload: {} }));
 
     if (hasConnectedBefore) {
       notify.info("Daemon reconnected", "Connection to DevNest orchestrator restored.", "system");
@@ -101,9 +110,15 @@ export function connectToDaemon() {
         if (Array.isArray(payload.sites)) {
           useSitesStore.getState().setSites(
             payload.sites as SiteEntry[],
-            Boolean(payload.caddy_available)
+            Boolean(payload.caddy_available),
+            Array.isArray(payload.parked_paths) ? payload.parked_paths : [],
+            Array.isArray(payload.suggested_parked_paths) ? payload.suggested_parked_paths : []
           );
         }
+      } else if (payload.event === "parked_scan_result") {
+        const path = (payload.path as string) ?? "";
+        const sites = Array.isArray(payload.sites) ? (payload.sites as DiscoveredSite[]) : [];
+        useSitesStore.getState().setParkedScan(path, sites);
       } else if (payload.event === "log_entry") {
         if (payload.entry) {
           useLogsStore.getState().addEntry(payload.entry);
@@ -122,6 +137,56 @@ export function connectToDaemon() {
         if (dbData && Array.isArray(dbData.services)) {
           useDatabasesStore.getState().setSync(dbData);
         }
+      } else if (payload.event === "db_schema_sync") {
+        const schema = payload.schema as SchemaResult | undefined;
+        if (schema) {
+          useDatabasesStore.getState().setSchema(schema);
+          if (schema.error) {
+            notify.error("Schema browse failed", schema.error, "system");
+          }
+        }
+      } else if (payload.event === "db_table_structure_sync") {
+        const structure = payload.structure as TableStructureResult | undefined;
+        if (structure) {
+          useDatabasesStore.getState().setTableStructure(structure);
+          if (structure.error) {
+            notify.error("Table structure failed", structure.error, "system");
+          }
+        }
+      } else if (payload.event === "db_table_data_sync") {
+        const data = payload.data as TableDataResult | undefined;
+        if (data) {
+          useDatabasesStore.getState().setTableData(data);
+          if (data.error) {
+            notify.error("Table data failed", data.error, "system");
+          }
+        }
+      } else if (payload.event === "db_query_sync") {
+        const query = payload.query as QueryResult | undefined;
+        if (query) {
+          useDatabasesStore.getState().setQueryResult(query);
+          if (query.error) {
+            notify.error("Query failed", query.error, "system");
+          }
+        }
+      } else if (payload.event === "db_row_mutation_sync") {
+        const mutation = payload.mutation as RowMutationResult | undefined;
+        useDatabasesStore.getState().setMutationLoading(false);
+        if (mutation?.error) {
+          notify.error("Row save failed", mutation.error, "system");
+        } else if (mutation?.message) {
+          notify.success("Saved", mutation.message, "system");
+        }
+      } else if (payload.event === "stacks_sync") {
+        const stacksData = (payload.stacks ?? payload) as StacksSyncPayload;
+        if (stacksData) {
+          useStacksStore.getState().setSync(stacksData);
+        }
+      } else if (payload.event === "stack_scan_result") {
+        const scan = payload.scan as StacksSyncPayload["saved"][number] | undefined;
+        if (scan) {
+          useStacksStore.getState().setLastScan(scan);
+        }
       } else if (payload.event === "migration_result") {
         const domain = payload.domain as string | undefined;
         const success = Boolean(payload.success);
@@ -138,6 +203,42 @@ export function connectToDaemon() {
         const aboutData = (payload.about ?? payload) as AboutSyncPayload;
         if (aboutData && aboutData.daemon_version) {
           useAboutStore.getState().setSync(aboutData);
+        }
+      } else if (payload.event === "queue_sync") {
+        const queueData = (payload.queues ?? payload) as QueueSyncPayload;
+        if (queueData && Array.isArray(queueData.workers)) {
+          useQueuesStore.getState().setSync(queueData);
+        }
+      } else if (payload.event === "scheduler_sync") {
+        const schedData = (payload.scheduler ?? payload) as SchedulerSyncPayload;
+        if (schedData && Array.isArray(schedData.schedulers)) {
+          useSchedulerStore.getState().setSync(schedData);
+        }
+      } else if (payload.event === "worker_output") {
+        const line = payload.line as WorkerOutputLine | undefined;
+        if (line?.text) {
+          useWorkerOutputStore.getState().addLine(line);
+        }
+      } else if (payload.event === "worker_output_sync") {
+        if (Array.isArray(payload.lines)) {
+          useWorkerOutputStore.getState().setLines(payload.lines as WorkerOutputLine[]);
+        }
+      } else if (payload.event === "node_sync") {
+        const nodeData = (payload.node ?? payload) as NodeSyncPayload;
+        if (nodeData && Array.isArray(nodeData.installations)) {
+          useNodeStore.getState().setSync(nodeData);
+        }
+      } else if (payload.event === "scheduler_action_result") {
+        const domain = payload.domain as string | undefined;
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (domain) {
+          useSchedulerStore.getState().setLastAction({ domain, success, message });
+        }
+        if (success) {
+          notify.success("Scheduler", message, "system");
+        } else if (message) {
+          notify.error("Scheduler failed", message, "system");
         }
       } else if (payload.event === "config_update") {
         if (payload.config) {
@@ -184,7 +285,8 @@ export function syncDumpInbox(): boolean {
 }
 
 export function syncSites(): boolean {
-  return sendCommand("get_sites");
+  useSitesStore.getState().setLoading(true)
+  return sendCommand("get_sites")
 }
 
 export function syncLogInbox(): boolean {
@@ -199,8 +301,139 @@ export function syncDatabases(): boolean {
   return sendCommand("scan_databases");
 }
 
+export function fetchDBSchema(payload: {
+  engine: string;
+  database?: string;
+  sqlite_path?: string;
+}): boolean {
+  useDatabasesStore.getState().setSchemaLoading(true);
+  return sendCommand("get_db_schema", payload);
+}
+
+export function fetchDBTableStructure(payload: {
+  engine: string;
+  database?: string;
+  sqlite_path?: string;
+  table: string;
+}): boolean {
+  useDatabasesStore.getState().setTableStructureLoading(true);
+  return sendCommand("get_db_table_structure", payload);
+}
+
+export function fetchDBTableData(payload: {
+  engine: string;
+  database?: string;
+  sqlite_path?: string;
+  table: string;
+  limit?: number;
+  offset?: number;
+}): boolean {
+  useDatabasesStore.getState().setTableDataLoading(true);
+  return sendCommand("get_db_table_data", payload);
+}
+
+export function runDBQuery(payload: {
+  engine: string;
+  database?: string;
+  sqlite_path?: string;
+  sql: string;
+}): boolean {
+  useDatabasesStore.getState().setQueryLoading(true);
+  return sendCommand("run_db_query", payload);
+}
+
+export function mutateDBRow(payload: {
+  engine: string;
+  database?: string;
+  sqlite_path?: string;
+  table: string;
+  operation: "insert" | "update" | "delete";
+  values?: Record<string, string>;
+  keys?: Record<string, string>;
+}): boolean {
+  useDatabasesStore.getState().setMutationLoading(true);
+  return sendCommand("mutate_db_row", payload);
+}
+
+export function syncStacks(): boolean {
+  return sendCommand("get_stacks");
+}
+
+export function scanStack(rootPath: string): boolean {
+  return sendCommand("scan_stack", { root_path: rootPath });
+}
+
+export function addStack(payload: { root_path: string; name?: string }): boolean {
+  return sendCommand("add_stack", payload);
+}
+
+export function removeStack(payload: { id?: string; root_path?: string }): boolean {
+  return sendCommand("remove_stack", payload);
+}
+
 export function syncAbout(): boolean {
   return sendCommand("get_about");
+}
+
+export function startQueueWorker(domain: string): boolean {
+  return sendCommand("start_queue_worker", { domain });
+}
+
+export function stopQueueWorker(domain: string): boolean {
+  return sendCommand("stop_queue_worker", { domain });
+}
+
+export function restartQueueWorker(domain: string): boolean {
+  return sendCommand("restart_queue_worker", { domain });
+}
+
+export function updateQueueConfig(config: {
+  tries: number;
+  timeout: number;
+  memory: number;
+  queues: string;
+}): boolean {
+  return sendCommand("update_queue_config", config);
+}
+
+export function startScheduler(domain: string): boolean {
+  return sendCommand("start_scheduler", { domain });
+}
+
+export function stopScheduler(domain: string): boolean {
+  return sendCommand("stop_scheduler", { domain });
+}
+
+export function restartScheduler(domain: string): boolean {
+  return sendCommand("restart_scheduler", { domain });
+}
+
+export function runScheduleNow(domain: string): boolean {
+  return sendCommand("run_schedule_now", { domain });
+}
+
+export function syncNode(): boolean {
+  return sendCommand("get_node");
+}
+
+export function setActiveNode(path: string): boolean {
+  return sendCommand("set_active_node", { path });
+}
+
+export function startNodeDev(domain: string): boolean {
+  return sendCommand("start_node_dev", { domain });
+}
+
+export function stopNodeDev(domain: string): boolean {
+  return sendCommand("stop_node_dev", { domain });
+}
+
+export function restartNodeDev(domain: string): boolean {
+  return sendCommand("restart_node_dev", { domain });
+}
+
+export function clearWorkerOutput(kind: string, domain?: string): boolean {
+  return sendCommand("clear_worker_output", { kind, domain: domain ?? "" });
 }
 
 export function setActivePHP(path: string): boolean {
@@ -223,6 +456,7 @@ export function addSite(site: {
   tls: boolean
   php_version?: string
 }): boolean {
+  useSitesStore.getState().setBusy("save")
   return sendCommand("add_site", site);
 }
 
@@ -234,6 +468,7 @@ export function updateSite(site: {
   tls: boolean
   php_version?: string
 }): boolean {
+  useSitesStore.getState().setBusy("save")
   return sendCommand("update_site", site);
 }
 
@@ -247,4 +482,32 @@ export function openPath(path: string): boolean {
 
 export function removeSite(domain: string): boolean {
   return sendCommand("remove_site", { domain });
+}
+
+export function scanParkedPath(path: string): boolean {
+  useSitesStore.getState().setScanning(true)
+  return sendCommand("scan_parked_path", { path })
+}
+
+export function addParkedPath(payload: {
+  path: string;
+  name?: string;
+  import_sites?: boolean;
+}): boolean {
+  useSitesStore.getState().setBusy("park")
+  return sendCommand("add_parked_path", payload)
+}
+
+export function removeParkedPath(id: string): boolean {
+  return sendCommand("remove_parked_path", { id })
+}
+
+export function rescanParkedPaths(): boolean {
+  useSitesStore.getState().setBusy("rescan")
+  return sendCommand("rescan_parked_paths")
+}
+
+export function importDiscoveredSites(sites: DiscoveredSite[]): boolean {
+  useSitesStore.getState().setBusy("import")
+  return sendCommand("import_discovered_sites", { sites })
 }

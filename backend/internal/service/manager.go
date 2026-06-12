@@ -3,6 +3,7 @@ package service
 import (
 	"devnest/internal/telemetry"
 	"log"
+	"strings"
 	"sync"
 )
 
@@ -27,11 +28,28 @@ func (m *Manager) Register(srv Service) {
 	log.Printf("[Manager] Registered service: %s (%s)", srv.Name(), srv.Version())
 }
 
-// StartAll starts all registered services. Failures are logged but do not block other services.
+// Unregister stops and removes a service from the manager.
+func (m *Manager) Unregister(id string) {
+	m.mu.Lock()
+	srv, ok := m.services[id]
+	if ok {
+		delete(m.services, id)
+	}
+	m.mu.Unlock()
+	if ok && srv != nil {
+		_ = srv.Stop()
+		log.Printf("[Manager] Unregistered service: %s", id)
+	}
+}
+
+// StartAll starts registered core services. Per-site workers (queue/cron/node) are skipped.
 func (m *Manager) StartAll() error {
 	m.mu.RLock()
 	var svcs []Service
 	for _, s := range m.services {
+		if skipAutoStart(s.ID()) {
+			continue
+		}
 		svcs = append(svcs, s)
 	}
 	m.mu.RUnlock()
@@ -109,4 +127,10 @@ func (m *Manager) HealthCheck() map[string]HealthState {
 		health[id] = state
 	}
 	return health
+}
+
+func skipAutoStart(id string) bool {
+	return strings.HasPrefix(id, "queue-") ||
+		strings.HasPrefix(id, "cron-") ||
+		strings.HasPrefix(id, "node-")
 }

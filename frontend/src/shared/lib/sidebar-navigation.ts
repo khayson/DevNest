@@ -6,6 +6,7 @@ import {
   Terminal,
   Settings as SettingsIcon,
   Globe,
+  HardDrive,
   Activity,
   Sliders,
   Clock,
@@ -33,6 +34,7 @@ export const SIDEBAR_NAVIGATION: SidebarNavSection[] = [
     items: [
       { name: "General", id: "general", icon: SettingsIcon, shortName: "General" },
       { name: "Sites", id: "sites", icon: Globe, shortName: "Sites" },
+      { name: "Installs", id: "installs", icon: HardDrive, shortName: "Installs" },
       { name: "PHP", id: "php", icon: Server, shortName: "PHP" },
       { name: "Node.js", id: "node", icon: Server, shortName: "Node" },
       { name: "Services", id: "services", icon: Activity, shortName: "Services" },
@@ -69,6 +71,7 @@ export const SIDEBAR_NAVIGATION: SidebarNavSection[] = [
 const PAGE_TITLES: Record<string, string> = {
   general: "General",
   sites: "Sites",
+  installs: "Installs",
   php: "PHP",
   node: "Node.js",
   services: "Services",

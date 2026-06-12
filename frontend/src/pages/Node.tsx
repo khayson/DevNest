@@ -1,117 +1,222 @@
 import { motion } from "framer-motion"
-import { Check, Plus, Folder, Terminal } from "lucide-react"
-import { useState } from "react"
-
-interface NodeVersion {
-  version: string
-  isActive: boolean
-  isInstalled: boolean
-}
+import { Check, RefreshCw, Play, Square as Stop, AlertCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { setActiveNode, startNodeDev, stopNodeDev, restartNodeDev, syncNode } from "../shared/api/ws"
+import { isNodeActive, useNodeStore } from "../shared/store/node"
+import { useTelemetryStore } from "../shared/store/telemetry"
+import { WorkerActivityPanel } from "../widgets/WorkerActivityPanel"
+import {
+  ResponsiveTable,
+  ResponsiveTableHead,
+  ResponsiveTableBody,
+  MobileCardList,
+  MobileDataCard,
+  DesktopTableOnly,
+} from "../shared/ui/responsive-table"
 
 export function Node() {
-  const [nodeVersions, setNodeVersions] = useState<NodeVersion[]>([
-    { version: "v22.2.0", isActive: true, isInstalled: true },
-    { version: "v20.10.0", isActive: false, isInstalled: true },
-    { version: "v18.16.0", isActive: false, isInstalled: true },
-    { version: "v16.20.0", isActive: false, isInstalled: false },
-  ])
+  const sync = useNodeStore((s) => s.sync)
+  const connected = useTelemetryStore((s) => s.isConnected)
+  const rawServices = useTelemetryStore((s) => s.services) || {}
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
 
-  const setActiveVersion = (version: string) => {
-    setNodeVersions(nodeVersions.map(v => v.isInstalled ? { ...v, isActive: v.version === version } : v))
-  }
+  const installations = sync?.installations ?? []
+  const servers = sync?.servers ?? []
+  const active = useMemo(
+    () => installations.find((i) => isNodeActive(i, sync)),
+    [installations, sync]
+  )
 
-  const installVersion = (version: string) => {
-    setNodeVersions(nodeVersions.map(v => v.version === version ? { ...v, isInstalled: true } : v))
-  }
+  useEffect(() => {
+    if (connected) syncNode()
+  }, [connected])
+
+  const isRunning = (serviceId: string) => rawServices[serviceId]?.state === "running"
+
+  const domainOptions = useMemo(
+    () =>
+      servers.map((s) => ({
+        domain: s.domain,
+        label: s.site_name,
+        running: isRunning(s.service_id),
+      })),
+    [servers, rawServices]
+  )
+
+  const noNode = connected && sync && !sync.node_available
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
+    <motion.div
+      initial={{ opacity: 0, filter: "blur(4px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)" }}
       className="h-full flex flex-col min-h-0 space-y-6"
     >
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">NodeJS</h1>
-        <p className="text-base text-zinc-500 dark:text-zinc-400">Manage Node.js versions on your system using the embedded nvm.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Node.js</h1>
+          <p className="text-base text-zinc-500 dark:text-zinc-400">
+            Discover Node on PATH or nvm, pick an active version, and run <code className="font-mono text-sm">npm run dev</code> for frontend sites.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => syncNode()}
+          disabled={!connected}
+          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
       </div>
 
       <hr className="border-zinc-200 dark:border-zinc-800" />
 
       <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0 space-y-6 pb-6">
-        {/* active node info banner */}
-        <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="h-9 w-9 rounded-md bg-green-500/10 dark:bg-green-500/20 text-green-600 dark:text-green-400 flex items-center justify-center">
-              <Terminal className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="font-semibold text-sm text-zinc-800 dark:text-zinc-200">
-                Active CLI Node Version: {nodeVersions.find(v => v.isActive)?.version || "None"}
-              </div>
-              <div className="text-xs text-zinc-500">
-                NVM PATH: C:\Users\VICTUS\.nvm
-              </div>
-            </div>
+        {noNode && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+            No Node.js found. Install from <a href="https://nodejs.org" className="underline" target="_blank" rel="noreferrer">nodejs.org</a> or nvm-windows, then restart the daemon.
           </div>
+        )}
 
-          <button className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-950 text-xs font-semibold rounded-md shadow flex items-center space-x-1.5 transition-colors">
-            <Plus className="w-4 h-4" />
-            <span>Install Version</span>
-          </button>
+        <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold text-sm text-zinc-800 dark:text-zinc-200">
+              Active: {active?.label ?? sync?.active_label ?? "None"}
+            </div>
+            {sync?.active_path && (
+              <div className="text-xs font-mono text-zinc-500 mt-1 truncate max-w-md">{sync.active_path}</div>
+            )}
+          </div>
         </div>
 
-        {/* node version list */}
-        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden shadow-sm bg-white dark:bg-zinc-900/50">
-          <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {nodeVersions.map((node) => (
-              <div key={node.version} className="flex items-center justify-between p-4 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                <div className="flex items-center space-x-4">
-                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{node.version}</span>
-                  {node.isActive && (
-                    <span className="bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900 px-2 py-0.5 rounded text-xs font-semibold">
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-white dark:bg-zinc-900/50 divide-y divide-zinc-200 dark:divide-zinc-800">
+          {installations.length === 0 ? (
+            <p className="p-6 text-sm text-zinc-500">Waiting for Node discovery…</p>
+          ) : (
+            installations.map((inst) => (
+              <div key={inst.binary} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold">{inst.label}</span>
+                  {isNodeActive(inst, sync) && (
+                    <span className="text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-600 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-900">
                       Active
                     </span>
                   )}
-                  {!node.isInstalled && (
-                    <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded text-xs">
-                      Not Installed
-                    </span>
-                  )}
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  {node.isInstalled ? (
-                    <button 
-                      onClick={() => setActiveVersion(node.version)}
-                      disabled={node.isActive}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-md border shadow-sm transition-all flex items-center space-x-1
-                        ${node.isActive 
-                          ? "bg-zinc-50 dark:bg-zinc-800 text-zinc-400 border-zinc-200 dark:border-zinc-700 pointer-events-none" 
-                          : "bg-white hover:bg-zinc-50 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-700"
-                        }`}
-                    >
-                      {node.isActive && <Check className="w-3.5 h-3.5" />}
-                      <span>{node.isActive ? "Selected" : "Set Active"}</span>
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => installVersion(node.version)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 hover:bg-blue-700 text-white shadow transition-colors"
-                    >
-                      Install
-                    </button>
-                  )}
-                  <button 
-                    className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-                    title="Open Installation Folder"
-                  >
-                    <Folder className="w-4.5 h-4.5" />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setActiveNode(inst.binary)}
+                  disabled={!connected || isNodeActive(inst, sync)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md border disabled:opacity-40 flex items-center gap-1"
+                >
+                  {isNodeActive(inst, sync) ? <Check className="w-3.5 h-3.5" /> : null}
+                  {isNodeActive(inst, sync) ? "Selected" : "Set active"}
+                </button>
               </div>
-            ))}
-          </div>
+            ))
+          )}
         </div>
+
+        {servers.length > 0 && (
+          <>
+            <WorkerActivityPanel
+              kind="node"
+              title="Live dev server output"
+              selectedDomain={selectedDomain}
+              domains={domainOptions}
+              onSelectDomain={setSelectedDomain}
+            />
+
+            <MobileCardList>
+              {servers.map((s) => {
+                const activeDev = isRunning(s.service_id)
+                return (
+                  <MobileDataCard
+                    key={s.domain}
+                    title={s.site_name}
+                    subtitle={s.dev_command}
+                    selected={selectedDomain === s.domain}
+                    onSelect={() => setSelectedDomain(s.domain)}
+                    badge={
+                      <span className={`text-xs font-semibold ${activeDev ? "text-emerald-600" : "text-zinc-400"}`}>
+                        {activeDev ? "Running" : "Stopped"}
+                      </span>
+                    }
+                    rows={[
+                      { label: "Port", value: String(s.port) },
+                      { label: "Vite", value: s.uses_vite ? "Yes" : "No" },
+                    ]}
+                    actions={
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedDomain(s.domain)
+                            activeDev ? stopNodeDev(s.domain) : startNodeDev(s.domain)
+                          }}
+                          disabled={!connected || !sync?.node_available}
+                          className={`p-2 rounded ${activeDev ? "text-red-500" : "text-green-600"}`}
+                        >
+                          {activeDev ? <Stop className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => restartNodeDev(s.domain)}
+                          disabled={!activeDev || !connected}
+                          className="p-2 rounded text-zinc-450 disabled:opacity-30"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </div>
+                    }
+                  />
+                )
+              })}
+            </MobileCardList>
+
+            <DesktopTableOnly>
+              <ResponsiveTable minWidth={640}>
+                <ResponsiveTableHead>
+                  <tr>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Site</th>
+                    <th className="px-6 py-4">Port</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </ResponsiveTableHead>
+                <ResponsiveTableBody>
+                  {servers.map((s) => {
+                    const activeDev = isRunning(s.service_id)
+                    return (
+                      <tr
+                        key={s.domain}
+                        onClick={() => setSelectedDomain(s.domain)}
+                        className={`cursor-pointer hover:bg-zinc-50/50 ${selectedDomain === s.domain ? "bg-blue-50/40 dark:bg-blue-950/10" : ""}`}
+                      >
+                        <td className="px-6 py-4">{activeDev ? "Running" : "Stopped"}</td>
+                        <td className="px-6 py-4 font-semibold">{s.site_name}</td>
+                        <td className="px-6 py-4 font-mono">{s.port}</td>
+                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => (activeDev ? stopNodeDev(s.domain) : startNodeDev(s.domain))}
+                            disabled={!connected}
+                            className="p-2 inline-flex"
+                          >
+                            {activeDev ? <Stop className="w-4 h-4 text-red-500" /> : <Play className="w-4 h-4" />}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </ResponsiveTableBody>
+              </ResponsiveTable>
+            </DesktopTableOnly>
+          </>
+        )}
+
+        {sync?.node_available && servers.length === 0 && (
+          <div className="flex items-start gap-2 text-sm text-zinc-500">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>No sites with a <code className="font-mono text-xs">package.json</code> dev script. Add a frontend project in Sites.</span>
+          </div>
+        )}
       </div>
     </motion.div>
   )

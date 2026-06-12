@@ -16,7 +16,12 @@ export const PAGE_META: Record<string, PageMeta> = {
   sites: {
     status: "live",
     label: "Live",
-    description: "Add, edit, and remove local sites. Caddy routes Laravel (php_fastcgi) and proxy apps automatically.",
+    description: "Park folders like htdocs to auto-discover Laravel/Node projects as *.test sites, or add sites manually.",
+  },
+  installs: {
+    status: "live",
+    label: "Live",
+    description: "Scan XAMPP, Laragon, PostgreSQL, or custom folders to register runtime binaries for all services.",
   },
   php: {
     status: "live",
@@ -24,9 +29,9 @@ export const PAGE_META: Record<string, PageMeta> = {
     description: "Discovers PHP on PATH or ~/.devnest/runtimes/php, runs php-cgi, and syncs php.ini settings.",
   },
   node: {
-    status: "mock",
-    label: "Preview",
-    description: "Node.js settings are placeholder data, not read from the daemon.",
+    status: "live",
+    label: "Live",
+    description: "Discovers Node.js, sets active version, and supervises npm run dev per site with live output.",
   },
   services: {
     status: "partial",
@@ -36,17 +41,17 @@ export const PAGE_META: Record<string, PageMeta> = {
   databases: {
     status: "live",
     label: "Live",
-    description: "Start/stop MySQL, PostgreSQL, and Redis when installed. Scan SQLite files from sites and run artisan migrations.",
+    description: "Start/stop MySQL, PostgreSQL, and Redis. Browse and edit tables (Adminer-style), scan SQLite files, and run artisan migrations.",
   },
   queues: {
-    status: "mock",
-    label: "Preview",
-    description: "Queue worker list is hardcoded sample data.",
+    status: "live",
+    label: "Live",
+    description: "Per-site Laravel queue:work supervisors with .env connection detection and global worker defaults.",
   },
   scheduler: {
-    status: "mock",
-    label: "Preview",
-    description: "Scheduled tasks shown here are not read from your projects.",
+    status: "live",
+    label: "Live",
+    description: "Per-site schedule:work daemons and one-off schedule:run from the daemon.",
   },
   mail: {
     status: "live",

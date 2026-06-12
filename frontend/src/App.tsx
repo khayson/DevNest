@@ -10,6 +10,7 @@ import { getPageTitle, findNavItem } from "./shared/lib/sidebar-navigation"
 import { Sidebar } from "./widgets/Sidebar"
 import { General } from "./pages/General"
 import { Sites } from "./pages/Sites"
+import { Installs } from "./pages/Installs"
 import { PHP } from "./pages/PHP"
 import { Node } from "./pages/Node"
 import { Services } from "./pages/Services"
@@ -24,7 +25,7 @@ import { Notifications } from "./pages/Notifications"
 import { cn } from "./shared/lib/utils"
 
 /** Pages that manage their own scroll regions — no outer page padding wrapper. */
-const FULL_BLEED_VIEWS = new Set(["mail", "dumps"])
+const FULL_BLEED_VIEWS = new Set(["mail", "dumps", "databases"])
 
 export function App() {
   const [activeView, setActiveView] = useState("general")
@@ -35,7 +36,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (activeView === "mail" || activeView === "dumps") {
+    if (activeView === "mail" || activeView === "dumps" || activeView === "databases") {
       markPageSeen(activeView)
     }
   }, [activeView, markPageSeen])
@@ -44,6 +45,7 @@ export function App() {
     switch (activeView) {
       case "general": return <General />
       case "sites": return <Sites />
+      case "installs": return <Installs />
       case "php": return <PHP />
       case "node": return <Node />
       case "services": return <Services />

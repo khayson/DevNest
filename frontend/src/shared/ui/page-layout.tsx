@@ -19,9 +19,9 @@ export function PageLayout({ children, className, noScroll = false }: PageLayout
   }
 
   return (
-    <div className={cn("flex h-full min-h-0 w-full flex-col", className)}>
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="w-full space-y-5 pb-8 pr-1">{children}</div>
+    <div className={cn("flex h-full min-h-0 w-full min-w-0 flex-col", className)}>
+      <ScrollArea className="flex-1 min-h-0 min-w-0">
+        <div className="w-full min-w-0 max-w-full space-y-5 pb-8 pr-1">{children}</div>
       </ScrollArea>
     </div>
   )

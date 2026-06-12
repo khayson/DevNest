@@ -201,8 +201,12 @@ func handleSetActivePHP(payload map[string]interface{}) {
 	restartPHPService(inst)
 	reloadCaddyIfRunning()
 	refreshSQLiteManager()
+	syncWorkerManagers()
 	broadcastPHPSync()
 	broadcastDatabaseSync()
+	broadcastQueueSync()
+	broadcastSchedulerSync()
+	broadcastAboutSync()
 }
 
 func handleUpdatePHPIni(payload map[string]interface{}) {

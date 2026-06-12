@@ -19,6 +19,12 @@ type DevNestConfig struct {
 	AutoStartServices bool              `json:"auto_start_services"`
 	Theme             string            `json:"theme"`
 	CaddyBinary       string            `json:"caddy_binary,omitempty"`
+	QueueWorkerDefaults QueueWorkerDefaults `json:"queue_worker_defaults,omitempty"`
+	ActiveNodeVersion   string              `json:"active_node_version,omitempty"`
+	ActiveNodePath      string              `json:"active_node_path,omitempty"`
+	RuntimePaths        RuntimePaths        `json:"runtime_paths,omitempty"`
+	InstalledStacks     []InstalledStack    `json:"installed_stacks,omitempty"`
+	ParkedPaths         []ParkedPath        `json:"parked_paths,omitempty"`
 }
 
 type Store struct {

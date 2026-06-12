@@ -159,6 +159,9 @@ Then open the **Mail** tab in the dashboard.
 | Sites CRUD + Caddy routes + Laravel php_fastcgi | Live |
 | MySQL / PostgreSQL / Redis service managers | Live — when binaries are installed (e.g. XAMPP MySQL) |
 | SQLite scan + artisan migrations from Databases tab | Live — requires PHP |
+| Queue workers (per-site queue:work) | Live — reads QUEUE_CONNECTION from .env |
+| Task scheduler (per-site schedule:work) | Live — run now via schedule:run |
+| Node.js discovery + npm run dev per site | Live — Vite/frontend projects with dev script |
 
 ## Project layout
 

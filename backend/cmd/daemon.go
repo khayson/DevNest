@@ -221,6 +221,8 @@ initializes the telemetry poller, and boots configured services.`,
 			log.Fatalf("[Daemon] Failed to initialize config store: %v", err)
 		}
 
+		initProcessLog()
+
 		// Step 1: Start WebSocket Server
 		mux := http.NewServeMux()
 		mux.HandleFunc("/ws", handleWebSocket)
@@ -290,7 +292,15 @@ initializes the telemetry poller, and boots configured services.`,
 
 		registerPHPService()
 
+		if n := syncParkedPathsOnStartup(); n > 0 {
+			log.Printf("[Daemon] Imported %d site(s) from parked folders", n)
+		}
+
 		registerDatabaseServices()
+
+		initWorkerManagers()
+
+		initNodeManager()
 
 		// Register Log Aggregator
 		var logMgrErr error
@@ -479,6 +489,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Sync about / system info
 	sendAboutSync(conn)
 
+	// Sync queue workers and schedulers
+	sendQueueSync(conn)
+	sendSchedulerSync(conn)
+
+	sendWorkerOutputSync(conn)
+
+	sendNodeSync(conn)
+
 	// Keep connection alive, listen for UI commands
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -527,8 +545,60 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				sendPHPSync(conn)
 			case "get_databases":
 				sendDatabaseSync(conn)
+			case "get_stacks":
+				sendStacksSync(conn)
+			case "scan_stack":
+				handleScanStack(wsMsg.Payload)
+			case "add_stack":
+				handleAddStack(wsMsg.Payload)
+			case "remove_stack":
+				handleRemoveStack(wsMsg.Payload)
+			case "get_db_schema":
+				handleGetDBSchema(wsMsg.Payload)
+			case "get_db_table_structure":
+				handleGetDBTableStructure(wsMsg.Payload)
+			case "get_db_table_data":
+				handleGetDBTableData(wsMsg.Payload)
+			case "run_db_query":
+				handleRunDBQuery(wsMsg.Payload)
+			case "mutate_db_row":
+				handleMutateDBRow(wsMsg.Payload)
 			case "get_about":
 				sendAboutSync(conn)
+			case "get_queues":
+				sendQueueSync(conn)
+			case "get_scheduler":
+				sendSchedulerSync(conn)
+			case "start_queue_worker":
+				handleStartQueueWorker(wsMsg.Payload)
+			case "stop_queue_worker":
+				handleStopQueueWorker(wsMsg.Payload)
+			case "restart_queue_worker":
+				handleRestartQueueWorker(wsMsg.Payload)
+			case "update_queue_config":
+				handleUpdateQueueConfig(wsMsg.Payload)
+			case "start_scheduler":
+				handleStartScheduler(wsMsg.Payload)
+			case "stop_scheduler":
+				handleStopScheduler(wsMsg.Payload)
+			case "restart_scheduler":
+				handleRestartScheduler(wsMsg.Payload)
+			case "run_schedule_now":
+				handleRunScheduleNow(wsMsg.Payload)
+			case "get_node":
+				sendNodeSync(conn)
+			case "set_active_node":
+				handleSetActiveNode(wsMsg.Payload)
+			case "start_node_dev":
+				handleStartNodeDev(wsMsg.Payload)
+			case "stop_node_dev":
+				handleStopNodeDev(wsMsg.Payload)
+			case "restart_node_dev":
+				handleRestartNodeDev(wsMsg.Payload)
+			case "get_worker_output":
+				handleGetWorkerOutput(wsMsg.Payload)
+			case "clear_worker_output":
+				handleClearWorkerOutput(wsMsg.Payload)
 			case "scan_databases":
 				handleScanDatabases()
 			case "run_migration":
@@ -563,6 +633,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
+			case "scan_parked_path":
+				handleScanParkedPath(wsMsg.Payload)
+			case "add_parked_path":
+				handleAddParkedPath(wsMsg.Payload)
+			case "remove_parked_path":
+				handleRemoveParkedPath(wsMsg.Payload)
+			case "rescan_parked_paths":
+				handleRescanParkedPaths()
+			case "import_discovered_sites":
+				handleImportDiscoveredSites(wsMsg.Payload)
 			case "clear_mail_inbox":
 				if globalMailStore != nil {
 					globalMailStore.Clear()
