@@ -1,4 +1,15 @@
-import { Braces, Code2, Globe, Mail, Waypoints, type LucideIcon } from "lucide-react"
+import {
+  Braces,
+  Code2,
+  Database,
+  Globe,
+  HardDrive,
+  Mail,
+  Search,
+  Server,
+  Waypoints,
+  type LucideIcon,
+} from "lucide-react"
 
 export interface ServiceBrandStyle {
   /** Icon + badge colors when service is running */
@@ -125,6 +136,111 @@ export const LIVE_SERVICES: LiveServiceDef[] = [
         border: "border-indigo-500/30",
         icon: "text-indigo-600 dark:text-indigo-400",
         glow: "shadow-[0_0_12px_rgba(99,102,241,0.25)]",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "mysql",
+    name: "MySQL",
+    port: "3306",
+    version: "8.x",
+    icon: Database,
+    hint: "Managed mysqld when binary is installed",
+    brand: {
+      active: {
+        bg: "bg-orange-500/12",
+        border: "border-orange-500/30",
+        icon: "text-orange-600 dark:text-orange-400",
+        glow: "shadow-[0_0_12px_rgba(249,115,22,0.25)]",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "postgres",
+    name: "PostgreSQL",
+    port: "5432",
+    version: "17.x",
+    icon: Server,
+    hint: "Managed postgres when binary is installed",
+    brand: {
+      active: {
+        bg: "bg-blue-500/12",
+        border: "border-blue-500/30",
+        icon: "text-blue-600 dark:text-blue-400",
+        glow: "shadow-[0_0_12px_rgba(59,130,246,0.25)]",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "redis",
+    name: "Redis",
+    port: "6379",
+    version: "7.x",
+    icon: HardDrive,
+    hint: "In-memory cache and queues",
+    brand: {
+      active: {
+        bg: "bg-red-500/12",
+        border: "border-red-500/30",
+        icon: "text-red-600 dark:text-red-400",
+        glow: "shadow-[0_0_12px_rgba(239,68,68,0.25)]",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "minio",
+    name: "MinIO",
+    port: "9000, 9001",
+    version: "S3",
+    icon: Server,
+    hint: "Local S3-compatible object storage",
+    brand: {
+      active: {
+        bg: "bg-pink-500/12",
+        border: "border-pink-500/30",
+        icon: "text-pink-600 dark:text-pink-400",
+        glow: "shadow-[0_0_12px_rgba(236,72,153,0.25)]",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "meilisearch",
+    name: "Meilisearch",
+    port: "7700",
+    version: "1.7",
+    icon: Search,
+    hint: "Full-text search engine for local dev",
+    brand: {
+      active: {
+        bg: "bg-teal-500/12",
+        border: "border-teal-500/30",
+        icon: "text-teal-600 dark:text-teal-400",
+        glow: "shadow-[0_0_12px_rgba(20,184,166,0.25)]",
       },
       idle: {
         bg: "bg-zinc-100 dark:bg-zinc-800/60",

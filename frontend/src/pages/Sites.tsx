@@ -16,6 +16,7 @@ import {
   Sparkles,
   Server,
   Shield,
+  Share2,
 } from "lucide-react"
 import { PageLayout } from "@/shared/ui/page-layout"
 import { Button } from "@/shared/ui/button"
@@ -41,6 +42,13 @@ import {
 import { usePHPStore } from "@/shared/store/php"
 import { useTelemetryStore } from "@/shared/store/telemetry"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select"
+import {
   addSite,
   openPath,
   removeSite,
@@ -52,6 +60,8 @@ import {
   removeParkedPath,
   rescanParkedPaths,
   importDiscoveredSites,
+  startSiteTunnel,
+  stopSiteTunnel,
 } from "@/shared/api/ws"
 import { notify } from "@/shared/store/notifications"
 import { cn } from "@/shared/lib/utils"
@@ -260,6 +270,16 @@ export function Sites() {
     if (openPath(site.path)) {
       notify.info("Opening folder", site.path, "system")
     }
+  }
+
+  const handleStartTunnel = (site: SiteEntry) => {
+    if (startSiteTunnel(site.domain)) {
+      notify.info("Starting tunnel…", `Waiting for cloudflared URL for ${site.domain}`, "system")
+    }
+  }
+
+  const handleStopTunnel = (site: SiteEntry) => {
+    stopSiteTunnel(site.domain)
   }
 
   const handleRescan = () => {
@@ -494,6 +514,8 @@ export function Sites() {
                   onRemove={() => handleRemove(site)}
                   onToggleTls={() => handleToggleTls(site)}
                   onOpenFolder={() => handleOpenFolder(site)}
+                  onStartTunnel={() => handleStartTunnel(site)}
+                  onStopTunnel={() => handleStopTunnel(site)}
                 />
               ))}
             </div>
@@ -531,16 +553,22 @@ export function Sites() {
                 <Input value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} placeholder="8000" />
               </FormField>
               <FormField label="PHP version (Laravel)">
-                <select
-                  value={form.php_version}
-                  onChange={(e) => setForm({ ...form, php_version: e.target.value })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                <Select
+                  value={form.php_version || "__global__"}
+                  onValueChange={(v) => setForm({ ...form, php_version: v === "__global__" ? "" : v })}
                 >
-                  <option value="">Use global active PHP</option>
-                  {phpOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Use global active PHP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__global__">Use global active PHP</SelectItem>
+                    {phpOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </FormField>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.tls} onChange={(e) => setForm({ ...form, tls: e.target.checked })} className="rounded border-border" />
@@ -566,7 +594,7 @@ export function Sites() {
             </DialogHeader>
             <div className="grid gap-3 py-2">
               <FormField label="Projects folder">
-                <Input value={parkPath} onChange={(e) => setParkPath(e.target.value)} placeholder="C:\xampp\htdocs" />
+                <Input value={parkPath} onChange={(e) => setParkPath(e.target.value)} placeholder="C:/xampp/htdocs" />
               </FormField>
               <FormField label="Label (optional)">
                 <Input value={parkName} onChange={(e) => setParkName(e.target.value)} placeholder="XAMPP htdocs" />
@@ -758,15 +786,30 @@ function SiteActions({
   onEdit,
   onRemove,
   onOpenFolder,
+  onStartTunnel,
+  onStopTunnel,
 }: {
   site: SiteEntry
   onEdit: () => void
   onRemove: () => void
   onOpenFolder: () => void
+  onStartTunnel: () => void
+  onStopTunnel: () => void
 }) {
   const url = siteUrl(site)
+  const hasTunnel = Boolean(site.tunnel_url)
   return (
     <div className="flex items-center justify-end gap-0.5 flex-wrap">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn("h-8 w-8", hasTunnel && "text-sky-600")}
+        onClick={hasTunnel ? onStopTunnel : onStartTunnel}
+        title={hasTunnel ? "Stop public tunnel" : "Start public tunnel (cloudflared)"}
+      >
+        <Share2 className="h-3.5 w-3.5" />
+      </Button>
       <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onEdit} title="Edit">
         <Pencil className="h-3.5 w-3.5" />
       </Button>
@@ -806,12 +849,16 @@ function SiteCard({
   onRemove,
   onToggleTls,
   onOpenFolder,
+  onStartTunnel,
+  onStopTunnel,
 }: {
   site: SiteEntry
   onEdit: () => void
   onRemove: () => void
   onToggleTls: () => void
   onOpenFolder: () => void
+  onStartTunnel: () => void
+  onStopTunnel: () => void
 }) {
   const url = siteUrl(site)
   const isLaravel = site.type === "laravel"
@@ -844,6 +891,18 @@ function SiteCard({
         <ExternalLink className="h-4 w-4 shrink-0" />
       </a>
 
+      {site.tunnel_url && (
+        <a
+          href={site.tunnel_url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-500/10 dark:text-sky-400"
+        >
+          <span className="truncate">{site.tunnel_url}</span>
+          <Share2 className="h-3.5 w-3.5 shrink-0" />
+        </a>
+      )}
+
       <p className="break-all font-mono text-[11px] leading-relaxed text-muted-foreground" title={site.path}>
         {site.path}
       </p>
@@ -861,7 +920,14 @@ function SiteCard({
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-1 border-t border-border pt-3">
-        <SiteActions site={site} onEdit={onEdit} onRemove={onRemove} onOpenFolder={onOpenFolder} />
+        <SiteActions
+          site={site}
+          onEdit={onEdit}
+          onRemove={onRemove}
+          onOpenFolder={onOpenFolder}
+          onStartTunnel={onStartTunnel}
+          onStopTunnel={onStopTunnel}
+        />
       </div>
     </article>
   )

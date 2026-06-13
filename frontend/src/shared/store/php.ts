@@ -15,6 +15,12 @@ export interface PHPDirectives {
   upload_max_filesize: string
 }
 
+export interface PHPExtensionState {
+  name: string
+  label: string
+  enabled: boolean
+}
+
 export interface PHPSyncPayload {
   installations: PHPInstallation[]
   active_version?: string
@@ -22,6 +28,7 @@ export interface PHPSyncPayload {
   active_path?: string
   ini_path?: string
   directives: PHPDirectives
+  extensions?: PHPExtensionState[]
   php_available: boolean
   cgi_port: number
 }

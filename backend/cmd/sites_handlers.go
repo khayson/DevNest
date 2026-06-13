@@ -52,7 +52,11 @@ func buildEnrichedSites() []sites.SiteView {
 	if cfgStore == nil {
 		return []sites.SiteView{}
 	}
-	return sites.EnrichAll(cfgStore.GetSites(), getGlobalPHPVersion(), phpPortForVersion)
+	views := sites.EnrichAll(cfgStore.GetSites(), getGlobalPHPVersion(), phpPortForVersion)
+	for i := range views {
+		views[i].TunnelURL = tunnelURLForDomain(views[i].Domain)
+	}
+	return views
 }
 
 func existingSiteKeys() []string {

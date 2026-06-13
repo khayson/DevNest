@@ -16,7 +16,7 @@ import {
   AlertCircle,
 } from "lucide-react"
 import { useState } from "react"
-import { sendCommand } from "@/shared/api/ws"
+import { sendCommand, trustLocalCA } from "@/shared/api/ws"
 import { startServiceWithFeedback } from "@/shared/lib/service-actions"
 import { notify } from "@/shared/store/notifications"
 import { copyToClipboard } from "@/shared/lib/mail"
@@ -490,7 +490,7 @@ function CopyableCode({ value, className }: { value: string; className?: string 
   )
 }
 
-export function ConnectionPanel() {
+export function ConnectionPanel({ isConnected }: { isConnected?: boolean }) {
   return (
     <SettingsGroup
       title="Connection & storage"
@@ -512,6 +512,25 @@ export function ConnectionPanel() {
         description="Starts daemon and frontend together from project root."
       >
         <CopyableCode value={DEV_SCRIPT} />
+      </SettingsRow>
+      <SettingsRow
+        label="Trust local HTTPS certificate"
+        description="Adds Caddy's root CA to the system trust store so *.test sites open without browser warnings."
+        disabled={!isConnected}
+      >
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!isConnected}
+          onClick={() => {
+            if (trustLocalCA()) {
+              notify.info("Trusting certificate…", "Run Caddy at least once before trusting.", "system")
+            }
+          }}
+        >
+          Trust Caddy CA
+        </Button>
       </SettingsRow>
     </SettingsGroup>
   )

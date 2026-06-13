@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	DefaultMySQLPort    = 3306
-	DefaultPostgresPort = 5432
-	DefaultRedisPort    = 6379
+	DefaultMySQLPort         = 3306
+	DefaultPostgresPort      = 5432
+	DefaultRedisPort         = 6379
+	DefaultMeilisearchPort   = 7700
+	DefaultMinIOPort         = 9000
+	DefaultMinIOConsolePort  = 9001
 )
 
 // PathOverrides are optional config paths checked before auto-discovery.
@@ -67,6 +70,30 @@ func ResolveRedis() (string, error) {
 	return resolveBinary("redis-server", []string{
 		filepath.Join("redis", "redis-server.exe"),
 		filepath.Join("redis", "redis-server"),
+	}, nil)
+}
+
+// ResolveMeilisearch finds meilisearch in DevNest runtimes or on PATH.
+func ResolveMeilisearch() (string, error) {
+	return resolveBinary("meilisearch", []string{
+		filepath.Join("meilisearch", "meilisearch.exe"),
+		filepath.Join("meilisearch", "meilisearch"),
+	}, nil)
+}
+
+// ResolveMinIO finds minio in DevNest runtimes or on PATH.
+func ResolveMinIO() (string, error) {
+	return resolveBinary("minio", []string{
+		filepath.Join("minio", "minio.exe"),
+		filepath.Join("minio", "minio"),
+	}, nil)
+}
+
+// ResolveCloudflared finds cloudflared in DevNest runtimes or on PATH.
+func ResolveCloudflared() (string, error) {
+	return resolveBinary("cloudflared", []string{
+		filepath.Join("cloudflared", "cloudflared.exe"),
+		filepath.Join("cloudflared", "cloudflared"),
 	}, nil)
 }
 

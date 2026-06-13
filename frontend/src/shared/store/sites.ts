@@ -14,6 +14,7 @@ export interface SiteEntry {
   path_exists?: boolean
   php_version_pinned?: boolean
   php_cgi_port?: number
+  tunnel_url?: string
 }
 
 export interface ParkedPath {

@@ -34,9 +34,9 @@ export const PAGE_META: Record<string, PageMeta> = {
     description: "Discovers Node.js, sets active version, and supervises npm run dev per site with live output.",
   },
   services: {
-    status: "partial",
-    label: "Partial",
-    description: "Mail, dump server, DNS, Caddy, PHP, and database servers are live when binaries are installed.",
+    status: "live",
+    label: "Live",
+    description: "Mail, dump server, DNS, Caddy, PHP, databases, MinIO, and Meilisearch when binaries are installed.",
   },
   databases: {
     status: "live",

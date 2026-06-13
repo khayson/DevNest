@@ -97,7 +97,7 @@ export function General() {
           />
         </SettingsGroup>
       ),
-      connection: <ConnectionPanel />,
+      connection: <ConnectionPanel isConnected={isConnected} />,
     }),
     [
       isConnected,

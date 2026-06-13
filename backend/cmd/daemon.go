@@ -298,6 +298,8 @@ initializes the telemetry poller, and boots configured services.`,
 
 		registerDatabaseServices()
 
+		registerExtrasServices()
+
 		initWorkerManagers()
 
 		initNodeManager()
@@ -739,6 +741,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 					broadcastTelemetry()
 					broadcastAboutSync()
 				}
+			case "start_tunnel":
+				handleStartTunnel(wsMsg.Payload)
+			case "stop_tunnel":
+				handleStopTunnel(wsMsg.Payload)
+			case "trust_local_ca":
+				handleTrustLocalCA()
+			case "toggle_php_extension":
+				handleTogglePHPExtension(wsMsg.Payload)
 			}
 		}
 	}

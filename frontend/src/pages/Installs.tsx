@@ -232,8 +232,8 @@ export function Installs() {
           <h2 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Saved installs</h2>
           {filteredSaved.length === 0 ? (
             <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">
-              No saved installs yet. Add a folder like <code className="font-mono">C:\xampp</code> or{" "}
-              <code className="font-mono">C:\Program Files\PostgreSQL\17</code>.
+              No saved installs yet. Add a folder like <code className="font-mono">C:/xampp</code> or{" "}
+              <code className="font-mono">C:/Program Files/PostgreSQL/17</code>.
             </div>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -265,7 +265,7 @@ export function Installs() {
               <Input
                 value={rootPath}
                 onChange={(e) => setRootPath(e.target.value)}
-                placeholder="C:\xampp or C:\Program Files\PostgreSQL\17"
+                placeholder="C:/xampp or C:/Program Files/PostgreSQL/17"
               />
             </div>
             <div>

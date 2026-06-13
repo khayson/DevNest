@@ -123,6 +123,7 @@ func buildPHPSyncPayload() map[string]interface{} {
 	payload["active_path"] = inst.Binary
 	payload["ini_path"] = inst.IniPath
 	payload["directives"] = php.ReadDirectives(inst.IniPath)
+	payload["extensions"] = php.ExtensionStates(inst.IniPath)
 	return payload
 }
 

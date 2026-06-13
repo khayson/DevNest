@@ -20,6 +20,60 @@ func NewExtensionManager(iniPath string) *ExtensionManager {
 	}
 }
 
+// ExtensionState describes a togglable PHP extension in php.ini.
+type ExtensionState struct {
+	Name    string `json:"name"`
+	Label   string `json:"label"`
+	Enabled bool   `json:"enabled"`
+}
+
+var trackedExtensions = []struct {
+	Name  string
+	Label string
+}{
+	{"xdebug", "Xdebug"},
+	{"opcache", "OPcache"},
+}
+
+// ExtensionStates returns enabled/disabled state for common extensions.
+func ExtensionStates(iniPath string) []ExtensionState {
+	if iniPath == "" {
+		out := make([]ExtensionState, len(trackedExtensions))
+		for i, ext := range trackedExtensions {
+			out[i] = ExtensionState{Name: ext.Name, Label: ext.Label, Enabled: false}
+		}
+		return out
+	}
+	mgr := NewExtensionManager(iniPath)
+	out := make([]ExtensionState, 0, len(trackedExtensions))
+	for _, ext := range trackedExtensions {
+		enabled, _ := mgr.IsExtensionEnabled(ext.Name)
+		out = append(out, ExtensionState{Name: ext.Name, Label: ext.Label, Enabled: enabled})
+	}
+	return out
+}
+
+// IsExtensionEnabled checks if an extension line is active in php.ini.
+func (em *ExtensionManager) IsExtensionEnabled(extName string) (bool, error) {
+	lines, err := em.readLines()
+	if err != nil {
+		return false, err
+	}
+	extRegex := regexp.MustCompile(fmt.Sprintf(`^\s*(?:;+\s*)?(?:extension|zend_extension)\s*=\s*.*%s`, regexp.QuoteMeta(extName)))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ";") {
+			if extRegex.MatchString(strings.TrimPrefix(trimmed, ";")) || extRegex.MatchString(trimmed) {
+				continue
+			}
+		}
+		if extRegex.MatchString(trimmed) && !strings.HasPrefix(trimmed, ";") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ToggleExtension enables or disables a specific PHP extension by uncommenting/commenting it.
 func (em *ExtensionManager) ToggleExtension(extName string, enable bool) error {
 	lines, err := em.readLines()
@@ -33,10 +87,8 @@ func (em *ExtensionManager) ToggleExtension(extName string, enable bool) error {
 	for i, line := range lines {
 		if extRegex.MatchString(line) {
 			if enable {
-				// Remove leading semicolon
 				lines[i] = strings.TrimLeft(line, "; ")
 			} else {
-				// Add leading semicolon if it doesn't have one
 				if !strings.HasPrefix(strings.TrimSpace(line), ";") {
 					lines[i] = "; " + line
 				}
@@ -46,8 +98,6 @@ func (em *ExtensionManager) ToggleExtension(extName string, enable bool) error {
 	}
 
 	if !modified && enable {
-		// If we couldn't find the extension to uncomment, we append it
-		// (Assume standard extension=name format for Windows/Linux abstraction)
 		lines = append(lines, fmt.Sprintf("extension=%s", extName))
 	}
 

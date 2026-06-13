@@ -20,6 +20,7 @@ type SiteView struct {
 	PHPVersion       string `json:"php_version"`
 	PHPVersionPinned bool   `json:"php_version_pinned"`
 	PHPCGIPort       int    `json:"php_cgi_port,omitempty"`
+	TunnelURL        string `json:"tunnel_url,omitempty"`
 }
 
 // DetectType returns laravel when public/index.php exists, else proxy.

@@ -12,7 +12,7 @@ import (
 // Manager orchestrates public tunnels using cloudflared.
 type Manager struct {
 	binaryPath string
-	activeCmds map[int]*exec.Cmd
+	activeCmds map[string]*exec.Cmd
 	mu         sync.Mutex
 }
 
@@ -20,22 +20,26 @@ type Manager struct {
 func NewManager(binaryPath string) *Manager {
 	return &Manager{
 		binaryPath: binaryPath,
-		activeCmds: make(map[int]*exec.Cmd),
+		activeCmds: make(map[string]*exec.Cmd),
 	}
 }
 
-// StartTunnel spawns `cloudflared tunnel` for a specific local port and extracts the public URL.
-func (m *Manager) StartTunnel(localPort int, onUrlReady func(url string)) error {
+// StartTunnel spawns cloudflared for a site key, local port, and optional Host header.
+func (m *Manager) StartTunnel(key string, localPort int, hostHeader string, onURLReady func(url string)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.activeCmds[localPort]; exists {
-		return fmt.Errorf("tunnel already active for port %d", localPort)
+	if _, exists := m.activeCmds[key]; exists {
+		return fmt.Errorf("tunnel already active for %s", key)
 	}
 
-	// Example: cloudflared tunnel --url http://127.0.0.1:8000
-	cmd := exec.Command(m.binaryPath, "tunnel", "--url", fmt.Sprintf("http://127.0.0.1:%d", localPort))
-	
+	args := []string{"tunnel", "--url", fmt.Sprintf("http://127.0.0.1:%d", localPort)}
+	if hostHeader != "" {
+		args = append(args, "--http-host-header", hostHeader)
+	}
+
+	cmd := exec.Command(m.binaryPath, args...)
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
@@ -45,43 +49,41 @@ func (m *Manager) StartTunnel(localPort int, onUrlReady func(url string)) error 
 		return fmt.Errorf("failed to start cloudflared: %w", err)
 	}
 
-	m.activeCmds[localPort] = cmd
+	m.activeCmds[key] = cmd
+	log.Printf("[Tunnel] Starting %s -> 127.0.0.1:%d (Host: %q)", key, localPort, hostHeader)
 
-	// Cloudflared logs the URL to stderr
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		urlRegex := regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
-		
+
 		for scanner.Scan() {
 			line := scanner.Text()
-			// Search for the public URL
 			if match := urlRegex.FindString(line); match != "" {
-				log.Printf("[Tunnel] Port %d mapped to %s", localPort, match)
-				if onUrlReady != nil {
-					onUrlReady(match)
+				log.Printf("[Tunnel] %s mapped to %s", key, match)
+				if onURLReady != nil {
+					onURLReady(match)
 				}
-				break // URL found, stop scanning to save resources (or continue to log)
+				break
 			}
 		}
-		
-		// Wait for process to exit
+
 		err := cmd.Wait()
-		log.Printf("[Tunnel] Cloudflared exited for port %d: %v", localPort, err)
-		
+		log.Printf("[Tunnel] Cloudflared exited for %s: %v", key, err)
+
 		m.mu.Lock()
-		delete(m.activeCmds, localPort)
+		delete(m.activeCmds, key)
 		m.mu.Unlock()
 	}()
 
 	return nil
 }
 
-// StopTunnel terminates the cloudflared process for a given port.
-func (m *Manager) StopTunnel(localPort int) error {
+// StopTunnel terminates the cloudflared process for a site key.
+func (m *Manager) StopTunnel(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd, exists := m.activeCmds[localPort]
+	cmd, exists := m.activeCmds[key]
 	if !exists {
 		return nil
 	}
@@ -90,6 +92,6 @@ func (m *Manager) StopTunnel(localPort int) error {
 		return err
 	}
 
-	delete(m.activeCmds, localPort)
+	delete(m.activeCmds, key)
 	return nil
 }

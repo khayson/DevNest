@@ -1,10 +1,26 @@
-import { motion } from "framer-motion"
-import { Play, Square as Stop, RefreshCw } from "lucide-react"
-import { useTelemetryStore } from "../shared/store/telemetry"
-import { sendCommand } from "../shared/api/ws"
-import { startServiceWithFeedback } from "../shared/lib/service-actions"
-import { notify } from "../shared/store/notifications"
-import { LIVE_SERVICES, countRunningServices, getServiceBrandStyle } from "@/shared/lib/live-services"
+import { Play, RefreshCw, Square as Stop } from "lucide-react"
+import { useMemo } from "react"
+import { sendCommand } from "@/shared/api/ws"
+import { startServiceWithFeedback } from "@/shared/lib/service-actions"
+import { notify } from "@/shared/store/notifications"
+import { useTelemetryStore } from "@/shared/store/telemetry"
+import {
+  LIVE_SERVICES,
+  countRunningServices,
+  getServiceBrandStyle,
+} from "@/shared/lib/live-services"
+import { PageLayout } from "@/shared/ui/page-layout"
+import { Button } from "@/shared/ui/button"
+import { Badge } from "@/shared/ui/badge"
+import { SettingsGroup } from "@/shared/ui/settings-group"
+import {
+  DesktopTableOnly,
+  MobileCardList,
+  MobileDataCard,
+  ResponsiveTable,
+  ResponsiveTableBody,
+  ResponsiveTableHead,
+} from "@/shared/ui/responsive-table"
 import { cn } from "@/shared/lib/utils"
 
 export function Services() {
@@ -12,144 +28,223 @@ export function Services() {
   const isConnected = useTelemetryStore((state) => state.isConnected)
   const runningCount = countRunningServices(rawServices)
 
-  const services = LIVE_SERVICES.map((s) => {
-    const metric = rawServices[s.id]
-    const isRunning = metric?.state === "running"
-    return { ...s, isRunning }
-  })
+  const services = useMemo(
+    () =>
+      LIVE_SERVICES.map((s) => {
+        const metric = rawServices[s.id]
+        const isRunning = metric?.state === "running"
+        return { ...s, isRunning, metric }
+      }),
+    [rawServices]
+  )
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, filter: "blur(4px)" }} 
-      animate={{ opacity: 1, filter: "blur(0px)" }} 
-      className="space-y-6 h-full flex flex-col min-h-0"
-    >
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Services</h1>
-          <p className="text-base text-zinc-500 dark:text-zinc-400">
-            {isConnected
-              ? `${runningCount}/${LIVE_SERVICES.length} daemon services running`
-              : "Manage live daemon services."}
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2.5">
-          <button 
+    <PageLayout>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          {isConnected
+            ? `${runningCount}/${LIVE_SERVICES.length} daemon services running — mail, DNS, Caddy, databases, and extras.`
+            : "Start/stop every service registered with the Go orchestrator."}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            className="h-9"
+            disabled={!isConnected}
             onClick={() => {
               if (sendCommand("start_all")) notify.info("Starting all services…", undefined, "service")
             }}
-            disabled={!isConnected}
-            className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-950 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
           >
-            <Play className="w-4 h-4 fill-current" />
-            <span>Start All</span>
-          </button>
-          <button 
+            <Play className="h-4 w-4 fill-current" />
+            Start all
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9"
+            disabled={!isConnected}
             onClick={() => {
               if (sendCommand("stop_all")) notify.info("Stopping all services…", undefined, "service")
             }}
-            disabled={!isConnected}
-            className="px-4 py-2 bg-white hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 text-xs font-semibold rounded-md shadow flex items-center space-x-2 transition-colors disabled:opacity-50"
           >
-            <Stop className="w-4 h-4" />
-            <span>Stop All</span>
-          </button>
+            <Stop className="h-4 w-4" />
+            Stop all
+          </Button>
         </div>
       </div>
 
-      <hr className="border-zinc-200 dark:border-zinc-800" />
+      <SettingsGroup
+        title="Registered services"
+        description="Each row maps to a supervised process in the daemon. Missing binaries are skipped at startup."
+      >
+        <DesktopTableOnly>
+          <ResponsiveTable minWidth={720} className="rounded-none border-0 shadow-none">
+            <ResponsiveTableHead>
+              <tr>
+                <th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5">Service</th>
+                <th className="px-4 py-2.5">Port</th>
+                <th className="px-4 py-2.5 text-right">Actions</th>
+              </tr>
+            </ResponsiveTableHead>
+            <ResponsiveTableBody>
+              {services.map((service) => {
+                const Icon = service.icon
+                const brand = getServiceBrandStyle(service, service.isRunning)
+                return (
+                  <tr key={service.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          service.isRunning
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            service.isRunning ? "bg-emerald-500" : "bg-zinc-400"
+                          )}
+                        />
+                        {service.isRunning ? "Running" : "Stopped"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border",
+                            brand.bg,
+                            brand.border,
+                            service.isRunning && service.brand.active.glow
+                          )}
+                        >
+                          <Icon className={cn("h-4 w-4", brand.icon)} strokeWidth={2.25} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-foreground">{service.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{service.hint}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{service.port}</td>
+                    <td className="px-4 py-3">
+                      <ServiceActions service={service} isConnected={isConnected} />
+                    </td>
+                  </tr>
+                )
+              })}
+            </ResponsiveTableBody>
+          </ResponsiveTable>
+        </DesktopTableOnly>
 
-      <div className="flex-1 overflow-auto border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900/50 shadow-sm min-h-0 custom-scrollbar">
-        <table className="w-full border-collapse text-left text-sm text-zinc-500 dark:text-zinc-400">
-          <thead className="bg-zinc-50 dark:bg-zinc-900 text-[13px] font-semibold uppercase text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 sticky top-0">
-            <tr>
-              <th scope="col" className="px-6 py-4">Status</th>
-              <th scope="col" className="px-6 py-4">Service</th>
-              <th scope="col" className="px-6 py-4">Port</th>
-              <th scope="col" className="px-6 py-4">Version</th>
-              <th scope="col" className="px-6 py-4 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {services.map((service) => {
-              const Icon = service.icon
-              const brand = getServiceBrandStyle(service, service.isRunning)
-              return (
-              <tr key={service.id} className="hover:bg-zinc-50/55 dark:hover:bg-zinc-800/20 transition-colors">
-                <td className="px-6 py-5">
-                  <div className="flex items-center space-x-2.5">
-                    <span className={`w-2.5 h-2.5 rounded-full ${service.isRunning ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-zinc-400'}`} />
-                    <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-400">
-                      {service.isRunning ? "Running" : "Stopped"}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="flex items-center space-x-3">
+        <MobileCardList className="p-4">
+          {services.map((service) => {
+            const Icon = service.icon
+            const brand = getServiceBrandStyle(service, service.isRunning)
+            return (
+              <MobileDataCard
+                key={service.id}
+                title={service.name}
+                subtitle={service.hint}
+                badge={
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px]",
+                      service.isRunning
+                        ? "border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-400"
+                        : ""
+                    )}
+                  >
+                    {service.isRunning ? "Running" : "Stopped"}
+                  </Badge>
+                }
+                rows={[
+                  { label: "Port", value: service.port },
+                  { label: "Version", value: service.version },
+                ]}
+                actions={
+                  <div className="flex items-center gap-2">
                     <div
                       className={cn(
-                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all",
+                        "mr-auto flex h-8 w-8 items-center justify-center rounded-lg border",
                         brand.bg,
-                        brand.border,
-                        service.isRunning && service.brand.active.glow
+                        brand.border
                       )}
                     >
-                      <Icon className={cn("h-[18px] w-[18px]", brand.icon)} strokeWidth={2.25} />
+                      <Icon className={cn("h-3.5 w-3.5", brand.icon)} />
                     </div>
-                    <div className="min-w-0">
-                      <span className="font-bold text-zinc-800 dark:text-zinc-200 text-sm block">{service.name}</span>
-                      <span className="text-xs text-zinc-400 dark:text-zinc-500 truncate block">{service.hint}</span>
-                    </div>
+                    <ServiceActions service={service} isConnected={isConnected} compact />
                   </div>
-                </td>
-                <td className="px-6 py-5 font-mono text-sm text-zinc-500">
-                  {service.port}
-                </td>
-                <td className="px-6 py-5 text-sm text-zinc-500">
-                  {service.version}
-                </td>
-                <td className="px-6 py-5 text-right">
-                  <div className="flex items-center justify-end space-x-2">
-                    <button 
-                      onClick={() => startServiceWithFeedback(service.id)}
-                      disabled={service.isRunning || !isConnected}
-                      className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-green-600 dark:hover:text-green-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                      title="Start Service"
-                    >
-                      <Play className="w-4.5 h-4.5" />
-                    </button>
-                    <button 
-                      onClick={() => {
-                        if (sendCommand("restart_service", { serviceId: service.id })) {
-                          notify.info(`Restarting ${service.name}…`, undefined, "service")
-                        }
-                      }}
-                      disabled={!service.isRunning || !isConnected}
-                      className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                      title="Restart Service"
-                    >
-                      <RefreshCw className="w-4.5 h-4.5" />
-                    </button>
-                    <button 
-                      onClick={() => {
-                        if (sendCommand("stop_service", { serviceId: service.id })) {
-                          notify.info(`Stopping ${service.name}…`, undefined, "service")
-                        }
-                      }}
-                      disabled={!service.isRunning || !isConnected}
-                      className="p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                      title="Stop Service"
-                    >
-                      <Stop className="w-4.5 h-4.5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            )})}
-          </tbody>
-        </table>
-      </div>
-    </motion.div>
+                }
+              />
+            )
+          })}
+        </MobileCardList>
+      </SettingsGroup>
+    </PageLayout>
+  )
+}
+
+function ServiceActions({
+  service,
+  isConnected,
+  compact = false,
+}: {
+  service: { id: string; name: string; isRunning: boolean }
+  isConnected: boolean
+  compact?: boolean
+}) {
+  const btnClass = compact ? "h-8 w-8 p-0" : "h-8 w-8"
+
+  return (
+    <div className={cn("flex items-center justify-end gap-1", !compact && "w-full")}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={btnClass}
+        disabled={service.isRunning || !isConnected}
+        title="Start"
+        onClick={() => startServiceWithFeedback(service.id)}
+      >
+        <Play className="h-4 w-4 text-emerald-600" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={btnClass}
+        disabled={!service.isRunning || !isConnected}
+        title="Restart"
+        onClick={() => {
+          if (sendCommand("restart_service", { serviceId: service.id })) {
+            notify.info(`Restarting ${service.name}…`, undefined, "service")
+          }
+        }}
+      >
+        <RefreshCw className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={btnClass}
+        disabled={!service.isRunning || !isConnected}
+        title="Stop"
+        onClick={() => {
+          if (sendCommand("stop_service", { serviceId: service.id })) {
+            notify.info(`Stopping ${service.name}…`, undefined, "service")
+          }
+        }}
+      >
+        <Stop className="h-4 w-4 text-destructive" />
+      </Button>
+    </div>
   )
 }

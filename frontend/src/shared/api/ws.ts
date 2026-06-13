@@ -245,6 +245,34 @@ export function connectToDaemon() {
           useConfigStore.getState().setConfig(payload.config);
           applyTheme(payload.config.theme);
         }
+      } else if (payload.event === "tunnel_result") {
+        const domain = payload.domain as string | undefined;
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success && message && message.startsWith("http")) {
+          notify.success("Tunnel ready", `${domain} → ${message}`, "system");
+        } else if (success && !message) {
+          notify.info("Tunnel stopped", domain ?? "Site", "system");
+        } else if (!success && message) {
+          notify.error("Tunnel failed", message, "system");
+        }
+      } else if (payload.event === "trust_ca_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("Certificate trusted", message, "system");
+        } else if (message) {
+          notify.error("Trust CA failed", message, "system");
+        }
+      } else if (payload.event === "php_extension_result") {
+        const name = payload.name as string | undefined;
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("Extension updated", `${name} ${payload.enabled ? "enabled" : "disabled"}`, "system");
+        } else if (message) {
+          notify.error("Extension toggle failed", message, "system");
+        }
       }
     } catch (err) {
       console.error("[Daemon] Failed to parse message:", err);
@@ -510,4 +538,20 @@ export function rescanParkedPaths(): boolean {
 export function importDiscoveredSites(sites: DiscoveredSite[]): boolean {
   useSitesStore.getState().setBusy("import")
   return sendCommand("import_discovered_sites", { sites })
+}
+
+export function startSiteTunnel(domain: string): boolean {
+  return sendCommand("start_tunnel", { domain })
+}
+
+export function stopSiteTunnel(domain: string): boolean {
+  return sendCommand("stop_tunnel", { domain })
+}
+
+export function trustLocalCA(): boolean {
+  return sendCommand("trust_local_ca")
+}
+
+export function togglePHPExtension(name: string, enable: boolean): boolean {
+  return sendCommand("toggle_php_extension", { name, enable })
 }
