@@ -4,12 +4,14 @@ import "strings"
 
 // SiteEntry describes a local site proxied by Caddy.
 type SiteEntry struct {
-	Name       string `json:"name"`
-	Domain     string `json:"domain"`
-	Path       string `json:"path"`
-	Port       int    `json:"port"`
-	TLS        bool   `json:"tls"`
-	PHPVersion string `json:"pinned_php_version,omitempty"`
+	Name       string   `json:"name"`
+	Domain     string   `json:"domain"`
+	Path       string   `json:"path"`
+	Port       int      `json:"port"`
+	TLS        bool     `json:"tls"`
+	PHPVersion string   `json:"pinned_php_version,omitempty"`
+	Aliases    []string `json:"aliases,omitempty"`
+	Group      string   `json:"group,omitempty"`
 }
 
 // GetSites returns a copy of registered sites.
@@ -39,13 +41,34 @@ func normalizeSiteEntry(entry SiteEntry) SiteEntry {
 	entry.Name = strings.TrimSpace(entry.Name)
 	entry.Path = strings.TrimSpace(entry.Path)
 	entry.PHPVersion = strings.TrimSpace(entry.PHPVersion)
+	entry.Group = strings.TrimSpace(entry.Group)
 	if entry.Port <= 0 {
 		entry.Port = 8000
 	}
 	if entry.Name == "" && entry.Domain != "" {
 		entry.Name = strings.Split(entry.Domain, ".")[0]
 	}
+	if len(entry.Aliases) > 0 {
+		seen := map[string]bool{entry.Domain: true}
+		clean := make([]string, 0, len(entry.Aliases))
+		for _, alias := range entry.Aliases {
+			alias = strings.TrimSpace(strings.ToLower(alias))
+			if alias == "" || seen[alias] {
+				continue
+			}
+			seen[alias] = true
+			clean = append(clean, alias)
+		}
+		entry.Aliases = clean
+	}
 	return entry
+}
+
+// AllDomains returns primary domain plus aliases.
+func (e SiteEntry) AllDomains() []string {
+	out := []string{e.Domain}
+	out = append(out, e.Aliases...)
+	return out
 }
 
 // AddSite registers or updates a site by domain.

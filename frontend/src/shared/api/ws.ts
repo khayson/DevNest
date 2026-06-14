@@ -273,6 +273,61 @@ export function connectToDaemon() {
         } else if (message) {
           notify.error("Extension toggle failed", message, "system");
         }
+      } else if (payload.event === "php_install_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("PHP installed", message || "Refresh the PHP tab to use the new version.", "system");
+          syncPHP();
+        } else if (message) {
+          notify.error("PHP install failed", message, "system");
+        }
+      } else if (payload.event === "wizard_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("Project created", (payload.path as string) || "Site linked automatically.", "system");
+          syncSites();
+        } else if (message) {
+          notify.error("Wizard failed", message, "system");
+        }
+      } else if (payload.event === "dump_watch_sync") {
+        if (Array.isArray(payload.ignored)) {
+          useCapturedStore.getState().setDumpWatchIgnored(payload.ignored as string[]);
+        }
+      } else if (payload.event === "debug_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("Debug session", payload.active ? "Xdebug enabled" : "Xdebug disabled", "system");
+          syncPHP();
+        } else if (message) {
+          notify.error("Debug session failed", message, "system");
+        }
+      } else if (payload.event === "forge_result") {
+        const success = Boolean(payload.success)
+        const message = (payload.message as string) ?? ""
+        if (success && message) {
+          notify.success("Forge", message, "system")
+        } else if (!success && message) {
+          notify.error("Forge failed", message, "system")
+        } else if (success) {
+          notify.success("Forge", "Settings saved", "system")
+        }
+      } else if (payload.event === "db_open_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (success) {
+          notify.success("TablePlus", "Opening connection…", "system");
+        } else if (message) {
+          notify.error("TablePlus", message, "system");
+        }
+      } else if (payload.event === "ide_open_result") {
+        const success = Boolean(payload.success);
+        const message = (payload.message as string) ?? "";
+        if (!success && message) {
+          notify.error("Open in editor failed", message, "system");
+        }
       }
     } catch (err) {
       console.error("[Daemon] Failed to parse message:", err);
@@ -483,6 +538,8 @@ export function addSite(site: {
   port: number
   tls: boolean
   php_version?: string
+  group?: string
+  aliases?: string[]
 }): boolean {
   useSitesStore.getState().setBusy("save")
   return sendCommand("add_site", site);
@@ -495,6 +552,8 @@ export function updateSite(site: {
   port: number
   tls: boolean
   php_version?: string
+  group?: string
+  aliases?: string[]
 }): boolean {
   useSitesStore.getState().setBusy("save")
   return sendCommand("update_site", site);
@@ -554,4 +613,58 @@ export function trustLocalCA(): boolean {
 
 export function togglePHPExtension(name: string, enable: boolean): boolean {
   return sendCommand("toggle_php_extension", { name, enable })
+}
+
+export function installPHP(version = "8.3.21"): boolean {
+  return sendCommand("install_php", { version })
+}
+
+export function createLaravelProject(payload: {
+  name: string
+  parent_dir?: string
+  starter_kit?: string
+  auto_link?: boolean
+  update_env?: boolean
+}): boolean {
+  return sendCommand("create_laravel_project", payload)
+}
+
+export function linkSite(payload: { path?: string; domain?: string; update_env?: boolean }): boolean {
+  return sendCommand("link_site", payload)
+}
+
+export function exportDevnestYml(domain: string): boolean {
+  return sendCommand("export_devnest_yml", { domain })
+}
+
+export function importDevnestYml(path: string): boolean {
+  return sendCommand("import_devnest_yml", { path })
+}
+
+export function debugStart(port = 9003, ideKey = "PHPSTORM"): boolean {
+  return sendCommand("debug_start", { port, ide_key: ideKey })
+}
+
+export function debugStop(): boolean {
+  return sendCommand("debug_stop")
+}
+
+export function openInIDE(payload: { file?: string; line?: number; message?: string }): boolean {
+  return sendCommand("open_in_ide", payload)
+}
+
+export function openDatabase(engine: string, sqlitePath?: string): boolean {
+  return sendCommand("open_database", { engine, sqlite_path: sqlitePath ?? "" })
+}
+
+export function toggleDumpWatch(id: string, watch: boolean): boolean {
+  return sendCommand("toggle_dump_watch", { id, watch })
+}
+
+export function updateForge(payload: { api_token?: string; server_id?: number; server_name?: string }): boolean {
+  return sendCommand("update_forge", payload)
+}
+
+export function forgeDeploy(forgeSiteId: number): boolean {
+  return sendCommand("forge_deploy", { forge_site_id: forgeSiteId })
 }

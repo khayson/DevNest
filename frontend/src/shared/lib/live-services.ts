@@ -249,6 +249,66 @@ export const LIVE_SERVICES: LiveServiceDef[] = [
       },
     },
   },
+  {
+    id: "mariadb",
+    name: "MariaDB",
+    port: "3307",
+    version: "11.x",
+    icon: Database,
+    hint: "MySQL-compatible database server",
+    brand: {
+      active: {
+        bg: "bg-orange-500/12",
+        border: "border-orange-500/30",
+        icon: "text-orange-600 dark:text-orange-400",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "valkey",
+    name: "Valkey",
+    port: "6380",
+    version: "8.x",
+    icon: HardDrive,
+    hint: "Redis-compatible in-memory store",
+    brand: {
+      active: {
+        bg: "bg-violet-500/12",
+        border: "border-violet-500/30",
+        icon: "text-violet-600 dark:text-violet-400",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
+  {
+    id: "rustfs",
+    name: "RustFS",
+    port: "9002, 9003",
+    version: "S3",
+    icon: Server,
+    hint: "S3-compatible object storage (Rust)",
+    brand: {
+      active: {
+        bg: "bg-orange-500/12",
+        border: "border-orange-500/30",
+        icon: "text-orange-600 dark:text-orange-400",
+      },
+      idle: {
+        bg: "bg-zinc-100 dark:bg-zinc-800/60",
+        border: "border-zinc-200/80 dark:border-zinc-700/60",
+        icon: "text-zinc-400 dark:text-zinc-500",
+      },
+    },
+  },
 ]
 
 export const LIVE_SERVICE_IDS = LIVE_SERVICES.map((s) => s.id)
@@ -265,4 +325,19 @@ export function getServiceBrandStyle(service: LiveServiceDef, isRunning: boolean
 
 export const CONFIG_PATH = "~/.devnest/devnest.json"
 export const WS_ENDPOINT = "ws://127.0.0.1:9090/ws"
+export const MCP_HTTP_ENDPOINT = "http://127.0.0.1:9090/mcp"
+export const API_INFO_ENDPOINT = "http://127.0.0.1:9090/api/info"
 export const DEV_SCRIPT = ".\\scripts\\dev.ps1"
+
+export const MCP_CURSOR_CONFIG = JSON.stringify(
+  {
+    mcpServers: {
+      devnest: {
+        command: "devnest",
+        args: ["mcp"],
+      },
+    },
+  },
+  null,
+  2
+)

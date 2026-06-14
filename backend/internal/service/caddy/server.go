@@ -96,7 +96,8 @@ func generateCaddyfile(sites []config.SiteEntry, phpPortForSite func(site config
 	}
 
 	for _, site := range sites {
-		b.WriteString(site.Domain)
+		domains := site.AllDomains()
+		b.WriteString(strings.Join(domains, ", "))
 		b.WriteString(" {\n")
 		if site.TLS {
 			b.WriteString("\ttls internal\n")

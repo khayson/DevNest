@@ -25,10 +25,13 @@ export interface CapturedDump {
 interface CapturedState {
   emails: CapturedEmail[];
   dumps: CapturedDump[];
+  dumpWatchIgnored: string[];
   addEmail: (email: Partial<CapturedEmail> & { from?: string; to?: string; size?: number }) => void;
   setInbox: (emails: Array<Partial<CapturedEmail> & { from?: string; to?: string; size?: number }>) => void;
   addDump: (dump: Partial<CapturedDump> & { Payload?: string }) => void;
   setDumps: (dumps: CapturedDump[]) => void;
+  setDumpWatchIgnored: (ids: string[]) => void;
+  isDumpWatched: (id: string) => boolean;
   removeDump: (id: string) => void;
   removeEmail: (id: string) => void;
   clearEmails: () => void;
@@ -64,9 +67,10 @@ function normalizeDump(raw: Partial<CapturedDump> & { Payload?: string }): Captu
   };
 }
 
-export const useCapturedStore = create<CapturedState>((set) => ({
+export const useCapturedStore = create<CapturedState>((set, get) => ({
   emails: [],
   dumps: [],
+  dumpWatchIgnored: [],
   addEmail: (email) =>
     set((state) => {
       const normalized = normalizeEmail(email);
@@ -83,6 +87,8 @@ export const useCapturedStore = create<CapturedState>((set) => ({
     return { dumps: [normalized, ...state.dumps] };
   }),
   setDumps: (dumps) => set({ dumps: dumps.map((d) => normalizeDump(d)) }),
+  setDumpWatchIgnored: (dumpWatchIgnored) => set({ dumpWatchIgnored }),
+  isDumpWatched: (id) => !get().dumpWatchIgnored.includes(id),
   removeDump: (id) => set((state) => ({ dumps: state.dumps.filter((d) => d.id !== id) })),
   removeEmail: (id) => set((state) => ({ emails: state.emails.filter((e) => e.id !== id) })),
   clearEmails: () => set({ emails: [] }),

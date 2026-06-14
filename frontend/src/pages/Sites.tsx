@@ -34,6 +34,7 @@ import {
 import {
   emptySiteForm,
   formatPHPVersion,
+  groupSites,
   siteTypeLabel,
   siteUrl,
   useSitesStore,
@@ -62,7 +63,9 @@ import {
   importDiscoveredSites,
   startSiteTunnel,
   stopSiteTunnel,
+  exportDevnestYml,
 } from "@/shared/api/ws"
+import { SiteWizard } from "@/pages/sites/site-wizard"
 import { notify } from "@/shared/store/notifications"
 import { cn } from "@/shared/lib/utils"
 
@@ -90,6 +93,7 @@ export function Sites() {
   const [parkName, setParkName] = useState("")
   const [selectedDiscovered, setSelectedDiscovered] = useState<Set<string>>(new Set())
   const [editingDomain, setEditingDomain] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [form, setForm] = useState<SiteForm>(emptySiteForm)
 
   const phpOptions = useMemo(() => {
@@ -119,9 +123,13 @@ export function Sites() {
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.domain.toLowerCase().includes(q) ||
-        s.path.toLowerCase().includes(q)
+        s.path.toLowerCase().includes(q) ||
+        (s.group ?? "").toLowerCase().includes(q) ||
+        (s.aliases ?? []).some((a) => a.toLowerCase().includes(q))
     )
   }, [sites, search])
+
+  const groupedSites = useMemo(() => groupSites(filteredSites), [filteredSites])
 
   const unparkedSuggestions = suggestedParkedPaths.filter(
     (p) => !parkedPaths.some((pp) => pp.path.toLowerCase() === p.toLowerCase())
@@ -214,6 +222,8 @@ export function Sites() {
       port: String(site.port),
       tls: site.tls,
       php_version: site.pinned_php_version ?? "",
+      group: site.group ?? "",
+      aliases: (site.aliases ?? []).join(", "),
     })
     setDialogOpen(true)
   }
@@ -228,6 +238,11 @@ export function Sites() {
       return
     }
 
+    const aliases = form.aliases
+      .split(",")
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean)
+
     const payload = {
       name: form.name.trim() || domain.split(".")[0],
       domain,
@@ -235,6 +250,8 @@ export function Sites() {
       port,
       tls: form.tls,
       php_version: form.php_version.trim(),
+      group: form.group.trim(),
+      aliases,
     }
 
     const ok = editingDomain ? updateSite(payload) : addSite(payload)
@@ -317,6 +334,16 @@ export function Sites() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row shrink-0">
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={() => setWizardOpen(true)}
+                disabled={!isConnected}
+              >
+                <Sparkles className="h-4 w-4" />
+                New Laravel
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -505,21 +532,31 @@ export function Sites() {
           )}
 
           {!showDisconnected && !showInitialLoad && filteredSites.length > 0 && (
-            <div className="grid min-w-0 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-              {filteredSites.map((site) => (
-                <SiteCard
-                  key={site.domain}
-                  site={site}
-                  onEdit={() => openEditDialog(site)}
-                  onRemove={() => handleRemove(site)}
-                  onToggleTls={() => handleToggleTls(site)}
-                  onOpenFolder={() => handleOpenFolder(site)}
-                  onStartTunnel={() => handleStartTunnel(site)}
-                  onStopTunnel={() => handleStopTunnel(site)}
-                />
+            <div className="space-y-6">
+              {[...groupedSites.entries()].map(([groupName, groupList]) => (
+                <div key={groupName}>
+                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">{groupName}</h3>
+                  <div className="grid min-w-0 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                    {groupList.map((site) => (
+                      <SiteCard
+                        key={site.domain}
+                        site={site}
+                        onEdit={() => openEditDialog(site)}
+                        onRemove={() => handleRemove(site)}
+                        onToggleTls={() => handleToggleTls(site)}
+                        onOpenFolder={() => handleOpenFolder(site)}
+                        onStartTunnel={() => handleStartTunnel(site)}
+                        onStopTunnel={() => handleStopTunnel(site)}
+                        onExportYml={() => exportDevnestYml(site.domain)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
+
+          <SiteWizard open={wizardOpen} onOpenChange={setWizardOpen} />
 
           {busy === "import" && (
             <div className="flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-primary/5 py-3 text-sm text-primary">
@@ -569,6 +606,12 @@ export function Sites() {
                     ))}
                   </SelectContent>
                 </Select>
+              </FormField>
+              <FormField label="Group">
+                <Input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} placeholder="Work, Client A…" />
+              </FormField>
+              <FormField label="Aliases (comma-separated)">
+                <Input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} placeholder="app.test, api.test" />
               </FormField>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.tls} onChange={(e) => setForm({ ...form, tls: e.target.checked })} className="rounded border-border" />
@@ -788,6 +831,7 @@ function SiteActions({
   onOpenFolder,
   onStartTunnel,
   onStopTunnel,
+  onExportYml,
 }: {
   site: SiteEntry
   onEdit: () => void
@@ -795,6 +839,7 @@ function SiteActions({
   onOpenFolder: () => void
   onStartTunnel: () => void
   onStopTunnel: () => void
+  onExportYml?: () => void
 }) {
   const url = siteUrl(site)
   const hasTunnel = Boolean(site.tunnel_url)
@@ -818,6 +863,11 @@ function SiteActions({
       </Button>
       <CopyButton value={site.path} label="path" variant="icon" title="Copy path" />
       <CopyButton value={url} label="url" variant="icon" title="Copy URL" />
+      {onExportYml && (
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onExportYml} title="Export devnest.yml">
+          <Server className="h-3.5 w-3.5" />
+        </Button>
+      )}
       <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onRemove} title="Remove">
         <Trash2 className="h-3.5 w-3.5 text-destructive" />
       </Button>
@@ -851,6 +901,7 @@ function SiteCard({
   onOpenFolder,
   onStartTunnel,
   onStopTunnel,
+  onExportYml,
 }: {
   site: SiteEntry
   onEdit: () => void
@@ -859,6 +910,7 @@ function SiteCard({
   onOpenFolder: () => void
   onStartTunnel: () => void
   onStopTunnel: () => void
+  onExportYml?: () => void
 }) {
   const url = siteUrl(site)
   const isLaravel = site.type === "laravel"
@@ -869,6 +921,11 @@ function SiteCard({
         <div className="min-w-0 flex-1">
           <h4 className="truncate font-semibold text-foreground">{site.name}</h4>
           <p className="truncate font-mono text-xs text-muted-foreground">{site.domain}</p>
+          {(site.aliases?.length ?? 0) > 0 && (
+            <p className="mt-1 truncate text-[10px] text-muted-foreground">
+              + {site.aliases!.join(", ")}
+            </p>
+          )}
           {!site.path_exists && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Path not found on disk</p>
           )}
@@ -927,6 +984,7 @@ function SiteCard({
           onOpenFolder={onOpenFolder}
           onStartTunnel={onStartTunnel}
           onStopTunnel={onStopTunnel}
+          onExportYml={onExportYml}
         />
       </div>
     </article>

@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 
+export interface ForgeSettings {
+  api_token?: string
+  server_id?: number
+  server_name?: string
+}
+
 export interface DevNestConfig {
   active_php_version: string;
   registered_sites: Record<string, string>;
@@ -7,6 +13,8 @@ export interface DevNestConfig {
   launch_on_startup: boolean;
   auto_start_services: boolean;
   theme: 'system' | 'light' | 'dark';
+  forge?: ForgeSettings;
+  ide_command?: string;
 }
 
 interface ConfigState {

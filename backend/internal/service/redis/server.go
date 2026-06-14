@@ -14,28 +14,54 @@ import (
 
 // Server represents a managed Redis process.
 type Server struct {
-	binaryPath string
-	dataDir    string
-	port       int
-	cmd        *exec.Cmd
-	state      service.HealthState
-	mu         sync.Mutex
+	id           string
+	displayName  string
+	versionLabel string
+	binaryPath   string
+	dataDir      string
+	port         int
+	cmd          *exec.Cmd
+	state        service.HealthState
+	mu           sync.Mutex
 }
 
 // NewServer initializes a new Redis service manager.
 func NewServer(binaryPath string, port int) *Server {
+	return NewNamedServer("redis", "Redis Server", "7.0", binaryPath, port, "redis")
+}
+
+// NewNamedServer creates a Redis-compatible server with a custom service ID.
+func NewNamedServer(id, name, version, binaryPath string, port int, dataSubdir string) *Server {
 	homeDir, _ := os.UserHomeDir()
 	return &Server{
-		binaryPath: binaryPath,
-		dataDir:    filepath.Join(homeDir, ".devnest", "data", "redis"),
-		port:       port,
-		state:      service.StateStopped,
+		id:           id,
+		displayName:  name,
+		versionLabel: version,
+		binaryPath:   binaryPath,
+		dataDir:      filepath.Join(homeDir, ".devnest", "data", dataSubdir),
+		port:         port,
+		state:        service.StateStopped,
 	}
 }
 
-func (s *Server) ID() string      { return "redis" }
-func (s *Server) Name() string    { return "Redis Server" }
-func (s *Server) Version() string { return "7.0" }
+func (s *Server) ID() string {
+	if s.id != "" {
+		return s.id
+	}
+	return "redis"
+}
+func (s *Server) Name() string {
+	if s.displayName != "" {
+		return s.displayName
+	}
+	return "Redis Server"
+}
+func (s *Server) Version() string {
+	if s.versionLabel != "" {
+		return s.versionLabel
+	}
+	return "7.0"
+}
 
 // Configure ensures the data directory exists.
 func (s *Server) Configure() error {

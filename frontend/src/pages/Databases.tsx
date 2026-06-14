@@ -5,11 +5,13 @@ import { cn } from "@/shared/lib/utils"
 import { engineLabel, sqliteExplorerDatabases, type DbEngine } from "@/shared/lib/databases-ui"
 import { useTelemetryStore } from "@/shared/store/telemetry"
 import { useDatabasesStore, type TableSelection } from "@/shared/store/databases"
-import { sendCommand, openPath, syncDatabases, fetchDBSchema } from "@/shared/api/ws"
+import { sendCommand, openPath, syncDatabases, fetchDBSchema, openDatabase } from "@/shared/api/ws"
 import { notify } from "@/shared/store/notifications"
 import { DbTableReader, type DbContentTab } from "@/pages/databases/db-table-reader"
 import { DbSchemaTree } from "@/pages/databases/db-schema-tree"
+import { DbConnectionBar } from "@/pages/databases/db-connection-bar"
 import { ScrollArea } from "@/shared/ui/scroll-area"
+import { PageLayout } from "@/shared/ui/page-layout"
 
 function normalizeDbKey(engine: DbEngine, databaseId: string) {
   const id = databaseId.trim()
@@ -190,7 +192,24 @@ export function Databases() {
     migratingDomain && migrationStatus?.domain === migratingDomain ? migrationStatus.message : null
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-slate-100 dark:bg-slate-950">
+    <PageLayout noScroll className="p-0">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-100 dark:bg-slate-950">
+      <DbConnectionBar
+        engine={engine}
+        activeServer={activeServer}
+        serverRunning={engine === "sqlite" ? true : serverRunning}
+        isConnected={isConnected}
+        sqlitePath={engine === "sqlite" ? selectedDatabase || undefined : undefined}
+        onToggleServer={toggleServer}
+        onOpenTablePlus={() => {
+          if (engine === "sqlite" && selectedDatabase) {
+            openDatabase("sqlite", selectedDatabase)
+          } else {
+            openDatabase(engine)
+          }
+        }}
+      />
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Schema tree — dark sidebar */}
       <aside
         className={cn(
@@ -305,8 +324,8 @@ export function Databases() {
               <div className="max-w-md space-y-2">
                 <p className="text-base font-semibold text-foreground">Database browser</p>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Expand a database in the left tree, then click a table to view rows, edit structure,
-                  or run SQL.
+                  TablePlus-style layout: pick MySQL, PostgreSQL, or SQLite in the sidebar, browse tables here,
+                  or click <strong>Open in TablePlus</strong> in the connection bar for the native app.
                 </p>
               </div>
               <Button
@@ -325,5 +344,7 @@ export function Databases() {
         </div>
       </div>
     </div>
+    </div>
+    </PageLayout>
   )
 }

@@ -1,5 +1,6 @@
-import { togglePHPExtension } from "@/shared/api/ws"
+import { debugStart, debugStop, togglePHPExtension } from "@/shared/api/ws"
 import { type PHPExtensionState, type PHPInstallation } from "@/shared/store/php"
+import { Button } from "@/shared/ui/button"
 import { SettingsGroup, SettingsRow } from "@/shared/ui/settings-group"
 import { Switch } from "@/shared/ui/switch"
 
@@ -39,6 +40,14 @@ export function PHPExtensions({ active, extensions, connected }: PHPExtensionsPr
           </SettingsRow>
         ))
       )}
+      <div className="flex flex-wrap gap-2 border-t border-border px-5 py-3">
+        <Button type="button" size="sm" variant="secondary" disabled={disabled} onClick={() => debugStart()}>
+          Start debug session
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => debugStop()}>
+          Stop debug session
+        </Button>
+      </div>
     </SettingsGroup>
   )
 }

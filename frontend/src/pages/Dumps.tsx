@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { RefreshCw, Terminal, Trash2, MoreHorizontal, Search, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { sendCommand, syncDumpInbox } from "@/shared/api/ws"
+import { sendCommand, syncDumpInbox, toggleDumpWatch } from "@/shared/api/ws"
 import { formatBytes } from "@/shared/lib/mail"
 import { startServiceWithFeedback } from "@/shared/lib/service-actions"
 import { notify } from "@/shared/store/notifications"
@@ -27,6 +27,7 @@ type ViewerTab = "rendered" | "raw"
 
 export function Dumps() {
   const dumps = useCapturedStore((s) => s.dumps)
+  const isDumpWatched = useCapturedStore((s) => s.isDumpWatched)
   const clearDumps = useCapturedStore((s) => s.clearDumps)
   const removeDump = useCapturedStore((s) => s.removeDump)
   const isConnected = useTelemetryStore((s) => s.isConnected)
@@ -266,6 +267,8 @@ export function Dumps() {
                               dump={dump}
                               isSelected={dump.id === selectedId}
                               isNew={dump.id === newestId}
+                              watched={isDumpWatched(dump.id)}
+                              onToggleWatch={() => toggleDumpWatch(dump.id, !isDumpWatched(dump.id))}
                               onSelect={() => {
                                 setSelectedId(dump.id)
                                 setActiveTab("rendered")

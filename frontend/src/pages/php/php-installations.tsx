@@ -1,5 +1,5 @@
-import { Check, ExternalLink, FileText, FolderOpen } from "lucide-react"
-import { openPath, setActivePHP } from "@/shared/api/ws"
+import { Check, Download, ExternalLink, FileText, FolderOpen } from "lucide-react"
+import { installPHP, openPath, setActivePHP } from "@/shared/api/ws"
 import {
   formatPHPVersion,
   isPHPActive,
@@ -175,7 +175,18 @@ export function PHPInstallations({ installations, sync, connected }: PHPInstalla
         </>
       )}
 
-      <div className="border-t border-border px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="h-8"
+          disabled={!connected}
+          onClick={() => installPHP("8.3.21")}
+        >
+          <Download className="h-3.5 w-3.5" />
+          Install PHP 8.3
+        </Button>
         <a
           href="https://windows.php.net/download/"
           target="_blank"

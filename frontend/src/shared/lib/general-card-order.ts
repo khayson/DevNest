@@ -1,7 +1,8 @@
-export type GeneralCardId = "services" | "startup" | "appearance" | "connection"
+export type GeneralCardId = "services" | "integrations" | "startup" | "appearance" | "connection"
 
 export const DEFAULT_GENERAL_CARD_ORDER: GeneralCardId[] = [
   "services",
+  "integrations",
   "startup",
   "appearance",
   "connection",
@@ -14,11 +15,12 @@ export function loadGeneralCardOrder(): GeneralCardId[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return [...DEFAULT_GENERAL_CARD_ORDER]
     const parsed = JSON.parse(raw) as GeneralCardId[]
-    const valid =
-      Array.isArray(parsed) &&
-      parsed.length === DEFAULT_GENERAL_CARD_ORDER.length &&
-      DEFAULT_GENERAL_CARD_ORDER.every((id) => parsed.includes(id))
-    return valid ? parsed : [...DEFAULT_GENERAL_CARD_ORDER]
+    if (!Array.isArray(parsed)) return [...DEFAULT_GENERAL_CARD_ORDER]
+    const merged = [...parsed]
+    for (const id of DEFAULT_GENERAL_CARD_ORDER) {
+      if (!merged.includes(id)) merged.push(id)
+    }
+    return merged.filter((id) => DEFAULT_GENERAL_CARD_ORDER.includes(id))
   } catch {
     return [...DEFAULT_GENERAL_CARD_ORDER]
   }
@@ -34,6 +36,7 @@ export function saveGeneralCardOrder(order: GeneralCardId[]) {
 
 export const GENERAL_CARD_LABELS: Record<GeneralCardId, string> = {
   services: "Live services",
+  integrations: "AI & Forge",
   startup: "Startup",
   appearance: "Appearance",
   connection: "Connection & storage",

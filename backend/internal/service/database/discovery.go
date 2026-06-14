@@ -16,6 +16,10 @@ const (
 	DefaultMeilisearchPort   = 7700
 	DefaultMinIOPort         = 9000
 	DefaultMinIOConsolePort  = 9001
+	DefaultMariaDBPort       = 3307
+	DefaultValkeyPort        = 6380
+	DefaultRustFSPort        = 9002
+	DefaultRustFSConsolePort = 9003
 )
 
 // PathOverrides are optional config paths checked before auto-discovery.
@@ -94,6 +98,36 @@ func ResolveCloudflared() (string, error) {
 	return resolveBinary("cloudflared", []string{
 		filepath.Join("cloudflared", "cloudflared.exe"),
 		filepath.Join("cloudflared", "cloudflared"),
+	}, nil)
+}
+
+// ResolveMariaDB finds mariadbd/mysqld for MariaDB.
+func ResolveMariaDB() (string, error) {
+	if p, err := resolveBinary("mariadbd", []string{
+		filepath.Join("mariadb", "bin", "mariadbd.exe"),
+		filepath.Join("mariadb", "bin", "mariadbd"),
+	}, nil); err == nil {
+		return p, nil
+	}
+	return resolveBinary("mysqld", []string{
+		filepath.Join("mariadb", "bin", "mysqld.exe"),
+		filepath.Join("mariadb", "bin", "mysqld"),
+	}, nil)
+}
+
+// ResolveValkey finds valkey-server in DevNest runtimes or on PATH.
+func ResolveValkey() (string, error) {
+	return resolveBinary("valkey-server", []string{
+		filepath.Join("valkey", "valkey-server.exe"),
+		filepath.Join("valkey", "valkey-server"),
+	}, nil)
+}
+
+// ResolveRustFS finds rustfs (S3-compatible) in DevNest runtimes or on PATH.
+func ResolveRustFS() (string, error) {
+	return resolveBinary("rustfs", []string{
+		filepath.Join("rustfs", "rustfs.exe"),
+		filepath.Join("rustfs", "rustfs"),
 	}, nil)
 }
 

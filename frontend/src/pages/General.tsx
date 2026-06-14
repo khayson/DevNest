@@ -22,6 +22,7 @@ import {
   StartupSettings,
   ConnectionPanel,
 } from "@/pages/general/general-sections"
+import { IntegrationsPanel } from "@/pages/general/integrations-panel"
 import { LIVE_SERVICES, countRunningServices } from "@/shared/lib/live-services"
 
 export function General() {
@@ -76,6 +77,7 @@ export function General() {
           ))}
         </SettingsGroup>
       ),
+      integrations: <IntegrationsPanel isConnected={isConnected} />,
       startup: (
         <StartupSettings
           isConnected={isConnected}

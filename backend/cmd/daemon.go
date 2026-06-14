@@ -226,6 +226,8 @@ initializes the telemetry poller, and boots configured services.`,
 		// Step 1: Start WebSocket Server
 		mux := http.NewServeMux()
 		mux.HandleFunc("/ws", handleWebSocket)
+		mux.HandleFunc("/mcp", handleMCP)
+		registerAPIRoutes(mux)
 
 		server := &http.Server{
 			Addr:    "127.0.0.1:9090",
@@ -299,6 +301,7 @@ initializes the telemetry poller, and boots configured services.`,
 		registerDatabaseServices()
 
 		registerExtrasServices()
+		registerExtendedServices()
 
 		initWorkerManagers()
 
@@ -749,6 +752,36 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				handleTrustLocalCA()
 			case "toggle_php_extension":
 				handleTogglePHPExtension(wsMsg.Payload)
+			case "install_php":
+				handleInstallPHP(wsMsg.Payload)
+			case "create_laravel_project":
+				handleCreateLaravelProject(wsMsg.Payload)
+			case "import_devnest_yml":
+				handleImportDevnestYml(wsMsg.Payload)
+			case "export_devnest_yml":
+				handleExportDevnestYml(wsMsg.Payload)
+			case "update_forge":
+				handleUpdateForge(wsMsg.Payload)
+			case "forge_deploy":
+				handleForgeDeploy(wsMsg.Payload)
+			case "forge_list_sites":
+				handleForgeListSites()
+			case "debug_start":
+				handleDebugStart(wsMsg.Payload)
+			case "debug_stop":
+				handleDebugStop()
+			case "open_in_ide":
+				handleOpenInIDE(wsMsg.Payload)
+			case "open_database":
+				handleOpenDatabase(wsMsg.Payload)
+			case "toggle_dump_watch":
+				handleToggleDumpWatch(wsMsg.Payload)
+			case "clone_service":
+				handleCloneService(wsMsg.Payload)
+			case "update_ide_command":
+				handleUpdateIDECommand(wsMsg.Payload)
+			case "link_site":
+				handleLinkSite(wsMsg.Payload)
 			}
 		}
 	}
@@ -780,6 +813,15 @@ func parseSitePayload(p map[string]interface{}) (config.SiteEntry, bool) {
 	if domain == "" || path == "" {
 		return config.SiteEntry{}, false
 	}
+	group, _ := p["group"].(string)
+	var aliases []string
+	if raw, ok := p["aliases"].([]interface{}); ok {
+		for _, item := range raw {
+			if s, ok := item.(string); ok && s != "" {
+				aliases = append(aliases, s)
+			}
+		}
+	}
 	return config.SiteEntry{
 		Name:       name,
 		Domain:     domain,
@@ -787,6 +829,8 @@ func parseSitePayload(p map[string]interface{}) (config.SiteEntry, bool) {
 		Port:       port,
 		TLS:        tls,
 		PHPVersion: phpVersion,
+		Aliases:    aliases,
+		Group:      group,
 	}, true
 }
 

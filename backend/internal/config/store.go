@@ -7,24 +7,36 @@ import (
 	"sync"
 )
 
+// ForgeSettings stores Laravel Forge integration credentials.
+type ForgeSettings struct {
+	APIToken  string `json:"api_token,omitempty"`
+	ServerID  int    `json:"server_id,omitempty"`
+	ServerName string `json:"server_name,omitempty"`
+}
+
 // DevNestConfig represents the persisted state of the environment.
 type DevNestConfig struct {
-	ActivePHPVersion  string            `json:"active_php_version"`
-	ActivePHPPath     string            `json:"active_php_path,omitempty"`
-	PHPIniDirectives  map[string]string `json:"php_ini_directives,omitempty"`
-	RegisteredSites   map[string]string `json:"registered_sites"` // legacy domain -> path
-	Sites             []SiteEntry       `json:"sites"`
-	CustomPorts       map[string]int    `json:"custom_ports"`
-	LaunchOnStartup   bool              `json:"launch_on_startup"`
-	AutoStartServices bool              `json:"auto_start_services"`
-	Theme             string            `json:"theme"`
-	CaddyBinary       string            `json:"caddy_binary,omitempty"`
-	QueueWorkerDefaults QueueWorkerDefaults `json:"queue_worker_defaults,omitempty"`
-	ActiveNodeVersion   string              `json:"active_node_version,omitempty"`
-	ActiveNodePath      string              `json:"active_node_path,omitempty"`
-	RuntimePaths        RuntimePaths        `json:"runtime_paths,omitempty"`
-	InstalledStacks     []InstalledStack    `json:"installed_stacks,omitempty"`
-	ParkedPaths         []ParkedPath        `json:"parked_paths,omitempty"`
+	ActivePHPVersion    string                       `json:"active_php_version"`
+	ActivePHPPath       string                       `json:"active_php_path,omitempty"`
+	PHPIniDirectives    map[string]string            `json:"php_ini_directives,omitempty"`
+	PHPVersionDirectives map[string]map[string]string `json:"php_version_directives,omitempty"`
+	RegisteredSites     map[string]string            `json:"registered_sites"` // legacy domain -> path
+	Sites               []SiteEntry                  `json:"sites"`
+	CustomPorts         map[string]int               `json:"custom_ports"`
+	LaunchOnStartup     bool                         `json:"launch_on_startup"`
+	AutoStartServices   bool                         `json:"auto_start_services"`
+	Theme               string                       `json:"theme"`
+	CaddyBinary         string                       `json:"caddy_binary,omitempty"`
+	QueueWorkerDefaults QueueWorkerDefaults          `json:"queue_worker_defaults,omitempty"`
+	ActiveNodeVersion   string                       `json:"active_node_version,omitempty"`
+	ActiveNodePath      string                       `json:"active_node_path,omitempty"`
+	RuntimePaths        RuntimePaths                 `json:"runtime_paths,omitempty"`
+	InstalledStacks     []InstalledStack             `json:"installed_stacks,omitempty"`
+	ParkedPaths         []ParkedPath                 `json:"parked_paths,omitempty"`
+	Forge               ForgeSettings                `json:"forge,omitempty"`
+	IDECommand          string                       `json:"ide_command,omitempty"`
+	DumpWatchIgnored    []string                     `json:"dump_watch_ignored,omitempty"`
+	DebugSessionActive  bool                         `json:"debug_session_active,omitempty"`
 }
 
 type Store struct {

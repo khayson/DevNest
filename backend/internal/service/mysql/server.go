@@ -17,6 +17,9 @@ const maxRestartAttempts = 3
 
 // Server represents a managed MySQL/MariaDB process.
 type Server struct {
+	id             string
+	displayName    string
+	versionLabel   string
 	binaryPath     string
 	devnestDataDir string
 	dataDir        string
@@ -31,10 +34,18 @@ type Server struct {
 
 // NewServer initializes a new MySQL service manager.
 func NewServer(binaryPath string, port int) *Server {
+	return NewNamedServer("mysql", "MySQL Server", "8.0", binaryPath, port, "mysql")
+}
+
+// NewNamedServer creates a MySQL-compatible server with a custom service ID.
+func NewNamedServer(id, name, version, binaryPath string, port int, dataSubdir string) *Server {
 	homeDir, _ := os.UserHomeDir()
-	devnestDir := filepath.Join(homeDir, ".devnest", "data", "mysql")
+	devnestDir := filepath.Join(homeDir, ".devnest", "data", dataSubdir)
 	dataDir, managed := database.MySQLDataDir(binaryPath, devnestDir)
 	return &Server{
+		id:             id,
+		displayName:    name,
+		versionLabel:   version,
 		binaryPath:     binaryPath,
 		devnestDataDir: devnestDir,
 		dataDir:        dataDir,
@@ -44,9 +55,24 @@ func NewServer(binaryPath string, port int) *Server {
 	}
 }
 
-func (s *Server) ID() string      { return "mysql" }
-func (s *Server) Name() string    { return "MySQL Server" }
-func (s *Server) Version() string { return "8.0" }
+func (s *Server) ID() string {
+	if s.id != "" {
+		return s.id
+	}
+	return "mysql"
+}
+func (s *Server) Name() string {
+	if s.displayName != "" {
+		return s.displayName
+	}
+	return "MySQL Server"
+}
+func (s *Server) Version() string {
+	if s.versionLabel != "" {
+		return s.versionLabel
+	}
+	return "8.0"
+}
 
 // ExternalMode is true when DevNest attached to an already-running MySQL (e.g. XAMPP).
 func (s *Server) ExternalMode() bool {

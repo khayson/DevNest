@@ -15,6 +15,8 @@ export interface SiteEntry {
   php_version_pinned?: boolean
   php_cgi_port?: number
   tunnel_url?: string
+  aliases?: string[]
+  group?: string
 }
 
 export interface ParkedPath {
@@ -95,4 +97,17 @@ export const emptySiteForm = {
   port: "8000",
   tls: true,
   php_version: "",
+  group: "",
+  aliases: "",
+}
+
+export function groupSites(sites: SiteEntry[]): Map<string, SiteEntry[]> {
+  const map = new Map<string, SiteEntry[]>()
+  for (const site of sites) {
+    const key = site.group?.trim() || "Ungrouped"
+    const list = map.get(key) ?? []
+    list.push(site)
+    map.set(key, list)
+  }
+  return map
 }
