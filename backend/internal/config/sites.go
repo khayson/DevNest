@@ -10,8 +10,9 @@ type SiteEntry struct {
 	Port       int      `json:"port"`
 	TLS        bool     `json:"tls"`
 	PHPVersion string   `json:"pinned_php_version,omitempty"`
-	Aliases    []string `json:"aliases,omitempty"`
-	Group      string   `json:"group,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+	Group       string   `json:"group,omitempty"`
+	ForgeSiteID int      `json:"forge_site_id,omitempty"`
 }
 
 // GetSites returns a copy of registered sites.

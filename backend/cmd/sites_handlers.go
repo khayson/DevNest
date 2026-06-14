@@ -110,6 +110,7 @@ func afterSiteMutation() {
 	syncNodeManagers()
 	reloadCaddyIfRunning()
 	refreshLogSources()
+	syncHostsIfNeeded()
 	broadcastSites()
 	broadcastDatabaseSync()
 	broadcastQueueSync()
@@ -198,13 +199,7 @@ func importDiscoveredSites(discovered []sites.DiscoveredSite, onlyNew bool) int 
 				continue
 			}
 		}
-		entry := config.SiteEntry{
-			Name:   d.Name,
-			Domain: d.Domain,
-			Path:   d.Path,
-			Port:   d.Port,
-			TLS:    true,
-		}
+		entry := siteEntryFromDiscovered(d)
 		if err := cfgStore.AddSite(entry); err != nil {
 			log.Printf("[Sites] Failed to import %s: %v", d.Domain, err)
 			continue
@@ -324,6 +319,19 @@ func handleImportDiscoveredSites(payload map[string]interface{}) {
 func stringField(m map[string]interface{}, key string) string {
 	v, _ := m[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func siteEntryFromDiscovered(d sites.DiscoveredSite) config.SiteEntry {
+	if manifest, err := config.ReadDevnestYml(d.Path); err == nil {
+		return config.SiteEntryFromDevnestYml(d.Path, manifest)
+	}
+	return config.SiteEntry{
+		Name:   d.Name,
+		Domain: d.Domain,
+		Path:   d.Path,
+		Port:   d.Port,
+		TLS:    true,
+	}
 }
 
 func syncParkedPathsOnStartup() int {

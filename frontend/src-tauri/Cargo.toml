@@ -1,10 +1,10 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "DevNest — local Laravel development environment"
+authors = ["DevNest contributors"]
+license = "MIT"
+repository = "https://github.com/khayson/DevNest"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -24,5 +24,8 @@ log = "0.4"
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 window-vibrancy = "0.5"
+dirs = "6"
 

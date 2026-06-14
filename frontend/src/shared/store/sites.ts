@@ -17,6 +17,7 @@ export interface SiteEntry {
   tunnel_url?: string
   aliases?: string[]
   group?: string
+  forge_site_id?: number
 }
 
 export interface ParkedPath {
@@ -32,6 +33,7 @@ export interface DiscoveredSite {
   port: number
   type: SiteType
   already_registered: boolean
+  has_devnest_yml?: boolean
 }
 
 interface SitesState {

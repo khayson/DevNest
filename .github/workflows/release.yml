@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Go sidecar
+        working-directory: backend
+        run: go build -ldflags "-s -w" -o devnest.exe .
+
+      - name: Copy sidecar for Tauri
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path frontend/src-tauri/binaries | Out-Null
+          Copy-Item backend/devnest.exe frontend/src-tauri/binaries/devnest-x86_64-pc-windows-msvc.exe -Force
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Sync updater pubkey (optional)
+        shell: pwsh
+        run: |
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            $pub = "${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}"
+            if ($pub) {
+              $pub | Out-File -FilePath frontend/src-tauri/updater.pubkey -Encoding utf8 -NoNewline
+              .\scripts\sync-updater-pubkey.ps1
+            }
+          }
+
+      - name: Build Tauri release
+        working-directory: frontend
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          npm run build
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            npx tauri build --config "{`"bundle`":{`"createUpdaterArtifacts`":true}}"
+          } else {
+            npx tauri build
+          }
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            frontend/src-tauri/target/release/bundle/nsis/*.exe
+            frontend/src-tauri/target/release/bundle/nsis/*.exe.sig
+            frontend/src-tauri/target/release/bundle/nsis/*.zip
+            frontend/src-tauri/target/release/bundle/nsis/*.zip.sig
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

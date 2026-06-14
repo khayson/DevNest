@@ -9,6 +9,7 @@ import {
   Sparkles,
   Check,
   RefreshCw,
+  Download,
 } from "lucide-react"
 import { PageLayout } from "@/shared/ui/page-layout"
 import { Button } from "@/shared/ui/button"
@@ -27,7 +28,7 @@ import {
   serviceLabel,
   type InstallScan,
 } from "@/shared/store/stacks"
-import { addStack, openPath, removeStack, scanStack, syncStacks } from "@/shared/api/ws"
+import { addStack, openPath, removeStack, scanStack, syncStacks, installRuntime } from "@/shared/api/ws"
 import { notify } from "@/shared/store/notifications"
 
 function StackCard({
@@ -120,6 +121,14 @@ export function Installs() {
   const [rootPath, setRootPath] = useState("")
   const [stackName, setStackName] = useState("")
   const [search, setSearch] = useState("")
+  const [installing, setInstalling] = useState<string | null>(null)
+
+  const runtimes = [
+    { id: "caddy", label: "Caddy", note: "Reverse proxy for *.test sites" },
+    { id: "node", label: "Node.js", note: "Frontend dev servers and tooling" },
+    { id: "cloudflared", label: "cloudflared", note: "Cloudflare tunnels for sharing sites" },
+    { id: "mariadb", label: "MariaDB", note: "MySQL-compatible server on port 3307" },
+  ] as const
 
   useEffect(() => {
     if (isConnected) syncStacks()
@@ -174,8 +183,45 @@ export function Installs() {
       <div className="space-y-8">
         <p className="text-sm text-muted-foreground">
           Point DevNest at XAMPP, Laragon, PostgreSQL, or any folder with runtimes. Discovered binaries
-          populate MySQL, PostgreSQL, Redis, PHP, and Node across the app.
+          populate MySQL, PostgreSQL, Redis, PHP, and Node across the app — or download runtimes directly.
         </p>
+
+        <section className="space-y-3">
+          <h2 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Download runtimes</h2>
+          <p className="text-xs text-muted-foreground">
+            Installs to <code className="font-mono">~/.devnest/runtimes/</code> (Windows). Restart the daemon after installing Caddy.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {runtimes.map((rt) => (
+              <div
+                key={rt.id}
+                className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{rt.label}</h3>
+                    <p className="mt-1 text-xs text-zinc-500">{rt.note}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!isConnected || installing === rt.id}
+                    onClick={() => {
+                      setInstalling(rt.id)
+                      if (installRuntime(rt.id)) {
+                        notify.toast("Downloading…", rt.label, "info")
+                      }
+                      setTimeout(() => setInstalling(null), 3000)
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {installing === rt.id ? "…" : "Install"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative min-w-[220px] flex-1 max-w-md">

@@ -5,6 +5,7 @@ import (
 	"devnest/internal/telemetry"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 
@@ -13,11 +14,12 @@ import (
 
 // Server represents the local DNS resolver.
 type Server struct {
-	port   int
-	server *dns.Server
-	state  service.HealthState
-	mu     sync.Mutex
-	tld    string
+	port          int
+	server        *dns.Server
+	state         service.HealthState
+	mu            sync.Mutex
+	tld           string
+	onBindFailure func()
 }
 
 // NewServer initializes a new embedded DNS server.
@@ -27,6 +29,13 @@ func NewServer(port int, tld string) *Server {
 		state: service.StateStopped,
 		tld:   strings.ToLower(tld), // e.g. ".test"
 	}
+}
+
+// SetOnBindFailure registers a callback when port 53 cannot be bound.
+func (s *Server) SetOnBindFailure(fn func()) {
+	s.mu.Lock()
+	s.onBindFailure = fn
+	s.mu.Unlock()
 }
 
 func (s *Server) ID() string      { return "dns-resolver" }
@@ -43,7 +52,18 @@ func (s *Server) Start() error {
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
-	
+
+	// Verify we can bind before marking running (port 53 often needs admin on Windows).
+	pc, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		s.state = service.StateError
+		if s.onBindFailure != nil {
+			s.onBindFailure()
+		}
+		return fmt.Errorf("failed to bind DNS on %s: %w", addr, err)
+	}
+	_ = pc.Close()
+
 	// Create a custom multiplexer for our DNS handling
 	mux := dns.NewServeMux()
 	mux.HandleFunc(s.tld+".", s.handleTestDomain)
@@ -63,7 +83,11 @@ func (s *Server) Start() error {
 			log.Printf("[DNS] Server error: %v", err)
 			s.mu.Lock()
 			s.state = service.StateError
+			cb := s.onBindFailure
 			s.mu.Unlock()
+			if cb != nil {
+				cb()
+			}
 		}
 	}()
 

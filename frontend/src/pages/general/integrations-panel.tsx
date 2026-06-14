@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
-import { Bot, Cloud, Copy, Check, ExternalLink, Rocket } from "lucide-react"
-import { forgeDeploy, updateForge } from "@/shared/api/ws"
+import { Bot, Cloud, Copy, Check, ExternalLink, Rocket, RefreshCw, Link2 } from "lucide-react"
+import { forgeDeploy, forgeListSites, linkForgeSite, updateForge } from "@/shared/api/ws"
 import { useConfigStore } from "@/shared/store/config"
+import { useSitesStore } from "@/shared/store/sites"
 import { notify } from "@/shared/store/notifications"
 import { copyToClipboard } from "@/shared/lib/mail"
 import { MCP_CURSOR_CONFIG, MCP_HTTP_ENDPOINT, API_INFO_ENDPOINT } from "@/shared/lib/live-services"
@@ -40,10 +41,13 @@ function CopyBlock({ value, label }: { value: string; label?: string }) {
 
 export function ForgePanel({ isConnected }: { isConnected?: boolean }) {
   const config = useConfigStore((s) => s.config)
+  const forgeSites = useConfigStore((s) => s.forgeSites)
+  const localSites = useSitesStore((s) => s.sites)
   const [token, setToken] = useState("")
   const [serverId, setServerId] = useState("")
   const [serverName, setServerName] = useState("")
   const [forgeSiteId, setForgeSiteId] = useState("")
+  const [linkDomain, setLinkDomain] = useState("")
 
   useEffect(() => {
     const f = config?.forge
@@ -53,6 +57,12 @@ export function ForgePanel({ isConnected }: { isConnected?: boolean }) {
       setServerName(f.server_name ?? "")
     }
   }, [config?.forge])
+
+  useEffect(() => {
+    if (isConnected && config?.forge?.api_token && config?.forge?.server_id) {
+      forgeListSites()
+    }
+  }, [isConnected, config?.forge?.api_token, config?.forge?.server_id])
 
   const save = () => {
     if (
@@ -130,7 +140,84 @@ export function ForgePanel({ isConnected }: { isConnected?: boolean }) {
           <Cloud className="h-3.5 w-3.5" />
           Save Forge settings
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="ml-2"
+          disabled={!isConnected || !token}
+          onClick={() => forgeListSites()}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh sites
+        </Button>
       </div>
+
+      {forgeSites.length > 0 && (
+        <div className="space-y-3 border-t border-border px-5 py-4">
+          <p className="text-xs font-medium text-muted-foreground">Forge sites on this server</p>
+          <ul className="max-h-48 space-y-2 overflow-auto text-xs">
+            {forgeSites.map((site) => (
+              <li
+                key={site.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{site.name}</p>
+                  <p className="truncate font-mono text-[10px] text-muted-foreground">{site.directory}</p>
+                </div>
+                <Badge variant="outline" className="shrink-0 font-mono">
+                  #{site.id}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+          <SettingsRow label="Link to local site" description="Connect a Forge site ID to a *.test domain">
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={linkDomain}
+                onChange={(e) => setLinkDomain(e.target.value)}
+                className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                disabled={!isConnected}
+              >
+                <option value="">Local site…</option>
+                {localSites.map((s) => (
+                  <option key={s.domain} value={s.domain}>
+                    {s.domain}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={forgeSiteId}
+                onChange={(e) => setForgeSiteId(e.target.value)}
+                className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                disabled={!isConnected}
+              >
+                <option value="">Forge site…</option>
+                {forgeSites.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.name} (#{s.id})
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!isConnected || !linkDomain || !forgeSiteId}
+                onClick={() => {
+                  if (linkForgeSite(linkDomain, parseInt(forgeSiteId, 10))) {
+                    notify.success("Linked", `${linkDomain} → Forge #${forgeSiteId}`, "system")
+                  }
+                }}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Link
+              </Button>
+            </div>
+          </SettingsRow>
+        </div>
+      )}
     </SettingsGroup>
   )
 }

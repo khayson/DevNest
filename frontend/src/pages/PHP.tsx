@@ -26,14 +26,22 @@ export function PHP() {
     max_execution_time: "30",
     upload_max_filesize: "2M",
   })
+  const [editVersion, setEditVersion] = useState("")
   const [dirty, setDirty] = useState(false)
 
   useEffect(() => {
-    if (sync?.directives) {
-      setDirectives(sync.directives)
-      setDirty(false)
+    if (sync?.active_version && !editVersion) {
+      setEditVersion(sync.active_version)
     }
-  }, [sync?.directives, sync?.active_path])
+  }, [sync?.active_version, editVersion])
+
+  useEffect(() => {
+    if (!sync || !editVersion) return
+    const fromFile = sync.directives ?? {}
+    const fromVersion = sync.version_directives?.[editVersion] ?? {}
+    setDirectives({ ...fromFile, ...fromVersion })
+    setDirty(false)
+  }, [sync?.directives, sync?.version_directives, editVersion, sync?.active_path])
 
   useEffect(() => {
     if (connected) syncPHP()
@@ -80,6 +88,9 @@ export function PHP() {
         <PHPInstallations installations={installations} sync={sync} connected={connected} />
         <PHPIniSettings
           active={active}
+          installations={installations}
+          editVersion={editVersion || sync?.active_version || ""}
+          onEditVersionChange={setEditVersion}
           directives={directives}
           dirty={dirty}
           phpAvailable={Boolean(sync?.php_available)}

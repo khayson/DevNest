@@ -241,6 +241,12 @@ initializes the telemetry poller, and boots configured services.`,
 			}
 		}()
 
+		shutdown := make(chan os.Signal, 1)
+		signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
+		requestDaemonShutdown = func() {
+			shutdown <- syscall.SIGTERM
+		}
+
 		// Step 2: Initialize and Start Telemetry Poller
 		poller := telemetry.NewPoller(2 * time.Second)
 		poller.Start(collectServiceTelemetry, func(metrics map[string]interface{}) {
@@ -254,6 +260,9 @@ initializes the telemetry poller, and boots configured services.`,
 
 		// Register DNS Resolver (Tier 1)
 		dnsServer := dns.NewServer(53, ".test")
+		dnsServer.SetOnBindFailure(func() {
+			activateHostsFallback("dns bind failed")
+		})
 		globalManager.Register(dnsServer)
 
 		// Register Email Interceptor
@@ -336,10 +345,13 @@ initializes the telemetry poller, and boots configured services.`,
 			log.Println("[Daemon] AutoStartServices is disabled. Services will remain idle until manually started.")
 		}
 
-		// Step 4: Wait for OS shutdown signal (Graceful Shutdown)
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-quit
+		ensureDNSOrHostsFallback()
+		if cfgStore.GetConfig().DNSUseHostsFallback {
+			syncHostsFromSites()
+		}
+
+		// Wait for OS shutdown signal (Graceful Shutdown)
+		sig := <-shutdown
 
 		log.Printf("[Daemon] Received %s signal. Shutting down gracefully...", sig)
 
@@ -631,6 +643,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			case "remove_site":
 				if cfgStore != nil {
 					if domain, ok := wsMsg.Payload["domain"].(string); ok {
+						if site, found := cfgStore.GetSite(domain); found && cfgStore.GetConfig().DNSUseHostsFallback {
+							osutil.RemoveSiteDomains(site)
+						}
 						if err := cfgStore.RemoveSite(domain); err != nil {
 							log.Printf("[Daemon] Error removing site: %v", err)
 						} else {
@@ -782,6 +797,18 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				handleUpdateIDECommand(wsMsg.Payload)
 			case "link_site":
 				handleLinkSite(wsMsg.Payload)
+			case "install_runtime":
+				handleInstallRuntime(wsMsg.Payload)
+			case "get_runtime_catalog":
+				handleRuntimeCatalog()
+			case "link_forge_site":
+				handleLinkForgeSite(wsMsg.Payload)
+			case "complete_first_run":
+				handleCompleteFirstRun()
+			case "reset_first_run":
+				handleResetFirstRun()
+			case "enable_hosts_fallback":
+				handleEnableHostsFallback()
 			}
 		}
 	}

@@ -6,6 +6,8 @@ export interface LogEntry {
   level: string
   message: string
   timestamp: string
+  file?: string
+  line?: number
 }
 
 interface LogsState {
@@ -22,6 +24,8 @@ function normalizeEntry(raw: Partial<LogEntry>): LogEntry {
     level: raw.level ?? "INFO",
     message: raw.message ?? "",
     timestamp: raw.timestamp ?? new Date().toISOString(),
+    file: raw.file,
+    line: raw.line,
   }
 }
 

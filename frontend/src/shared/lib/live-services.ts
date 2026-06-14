@@ -324,6 +324,7 @@ export function getServiceBrandStyle(service: LiveServiceDef, isRunning: boolean
 }
 
 export const CONFIG_PATH = "~/.devnest/devnest.json"
+export const LAUNCHER_BASE = "http://127.0.0.1:9089"
 export const WS_ENDPOINT = "ws://127.0.0.1:9090/ws"
 export const MCP_HTTP_ENDPOINT = "http://127.0.0.1:9090/mcp"
 export const API_INFO_ENDPOINT = "http://127.0.0.1:9090/api/info"

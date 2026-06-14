@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+var laravelFrameRe = regexp.MustCompile(`(?:#\d+\s+)?([A-Za-z]:\\[^:\n]+|/[^\s:]+\.(?:php|blade\.php)):(\d+)`)
+var laravelContextRe = regexp.MustCompile(`"exception"\s*:\s*"[^"]*at\s+([^:]+):(\d+)`)
 
 // LogEntry represents a single parsed log line.
 type LogEntry struct {
@@ -19,6 +24,8 @@ type LogEntry struct {
 	Level     string `json:"level"`     // e.g. "INFO", "ERROR", "DEBUG"
 	Message   string `json:"message"`   // The log message itself
 	Timestamp string `json:"timestamp"` // Parsed or current time
+	File      string `json:"file,omitempty"`
+	Line      int    `json:"line,omitempty"`
 }
 
 // Store holds aggregated logs in a circular buffer.
@@ -263,5 +270,31 @@ func (w *Watcher) parseLine(line, source string) LogEntry {
 		Level:     level,
 		Message:   line,
 		Timestamp: time.Now().Format(time.RFC3339),
+		File:      extractLogFile(line),
+		Line:      extractLogLine(line),
 	}
+}
+
+func extractLogFile(line string) string {
+	if m := laravelContextRe.FindStringSubmatch(line); len(m) == 3 {
+		return m[1]
+	}
+	if m := laravelFrameRe.FindStringSubmatch(line); len(m) == 3 {
+		return m[1]
+	}
+	return ""
+}
+
+func extractLogLine(line string) int {
+	if m := laravelContextRe.FindStringSubmatch(line); len(m) == 3 {
+		if n, err := strconv.Atoi(m[2]); err == nil {
+			return n
+		}
+	}
+	if m := laravelFrameRe.FindStringSubmatch(line); len(m) == 3 {
+		if n, err := strconv.Atoi(m[2]); err == nil {
+			return n
+		}
+	}
+	return 0
 }

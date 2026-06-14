@@ -19,7 +19,7 @@ import { cn } from "@/shared/lib/utils"
 import { engineLabel, type DbEngine, type ExplorerDatabase } from "@/shared/lib/databases-ui"
 import type { DBServiceInfo } from "@/shared/store/databases"
 
-const ENGINES: DbEngine[] = ["sqlite", "mysql", "postgres"]
+const ENGINES: DbEngine[] = ["sqlite", "mysql", "mariadb", "postgres", "valkey"]
 
 function dbCacheKey(engine: DbEngine, databaseId: string) {
   const id = databaseId.trim()

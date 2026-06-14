@@ -87,9 +87,13 @@ func buildDatabaseSyncPayload() map[string]interface{} {
 	mysqlBin, mysqlErr := database.ResolveMySQL()
 	pgBin, pgErr := database.ResolvePostgreSQL()
 	redisBin, redisErr := database.ResolveRedis()
+	mariadbBin, mariadbErr := database.ResolveMariaDB()
+	valkeyBin, valkeyErr := database.ResolveValkey()
 	mysqlOK := mysqlErr == nil
 	pgOK := pgErr == nil
 	redisOK := redisErr == nil
+	mariadbOK := mariadbErr == nil
+	valkeyOK := valkeyErr == nil
 
 	mysqlExternal := mysqlOK && database.PortInUse("127.0.0.1", database.DefaultMySQLPort)
 	mysqlNote := ""
@@ -136,6 +140,18 @@ func buildDatabaseSyncPayload() map[string]interface{} {
 			Port: database.DefaultRedisPort, Username: "N/A",
 			Password: "No password (local dev)", ConnStr: "redis://127.0.0.1:6379",
 			Available: redisOK, Binary: redisBin,
+		},
+		{
+			ID: "mariadb", Name: "MariaDB Server", Version: "11",
+			Port: database.DefaultMariaDBPort, Username: "root",
+			Password: "No password (local dev)", ConnStr: "mysql://root@127.0.0.1:3307/devnest",
+			Available: mariadbOK, Binary: mariadbBin,
+		},
+		{
+			ID: "valkey", Name: "Valkey Server", Version: "8",
+			Port: database.DefaultValkeyPort, Username: "N/A",
+			Password: "No password (local dev)", ConnStr: "redis://127.0.0.1:6380",
+			Available: valkeyOK, Binary: valkeyBin,
 		},
 	}
 

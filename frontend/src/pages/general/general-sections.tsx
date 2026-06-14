@@ -9,22 +9,30 @@ import {
   Check,
   Cpu,
   HardDrive,
-  Terminal,
   Wifi,
   WifiOff,
   Server,
   AlertCircle,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { sendCommand, trustLocalCA } from "@/shared/api/ws"
 import { startServiceWithFeedback } from "@/shared/lib/service-actions"
+import {
+  fetchLauncherHealth,
+  restartEnvironmentFromApp,
+  startDaemonFromApp,
+  stopEnvironmentFromApp,
+  bootstrapDevNest,
+  isTauriApp,
+  LAUNCHER_BASE,
+} from "@/shared/lib/daemon-control"
+import { connectToDaemon } from "@/shared/api/ws"
 import { notify } from "@/shared/store/notifications"
 import { copyToClipboard } from "@/shared/lib/mail"
 import {
   LIVE_SERVICES,
   CONFIG_PATH,
   WS_ENDPOINT,
-  DEV_SCRIPT,
   type LiveServiceDef,
   getServiceBrandStyle,
 } from "@/shared/lib/live-services"
@@ -83,6 +91,40 @@ export function StatusHero({
   const total = LIVE_SERVICES.length
   const allRunning = runningCount === total
   const progress = total > 0 ? (runningCount / total) * 100 : 0
+  const [launcherReady, setLauncherReady] = useState(false)
+  const [envBusy, setEnvBusy] = useState<"start" | "stop" | "restart" | null>(null)
+
+  useEffect(() => {
+    const ac = new AbortController()
+    const check = async () => {
+      try {
+        const health = await fetchLauncherHealth(ac.signal)
+        if (!ac.signal.aborted) setLauncherReady(Boolean(health?.ok))
+      } catch {
+        // ignore abort / network errors during polling
+      }
+    }
+    void check()
+    const id = window.setInterval(() => void check(), 5000)
+    return () => {
+      ac.abort()
+      window.clearInterval(id)
+    }
+  }, [isConnected])
+
+  const runEnvAction = async (
+    kind: "start" | "stop" | "restart",
+    fn: () => Promise<{ success: boolean; message?: string }>
+  ) => {
+    setEnvBusy(kind)
+    const result = await fn()
+    setEnvBusy(null)
+    if (!result.success && result.message) {
+      notify.error("Daemon control failed", result.message, "system")
+    }
+    const health = await fetchLauncherHealth()
+    setLauncherReady(Boolean(health?.ok))
+  }
 
   const daemonTone = !isConnected ? "danger" : allRunning ? "success" : runningCount > 0 ? "warning" : "default"
   const servicesTone = !isConnected ? "default" : allRunning ? "success" : runningCount === 0 ? "warning" : "default"
@@ -121,11 +163,46 @@ export function StatusHero({
                   : runningCount > 0
                     ? `${runningCount} of ${total} services running — start the rest or use Start all below.`
                     : "Connected to the Go backend, but no services are running yet."
-                : "The UI cannot reach ws://127.0.0.1:9090. Start the daemon from the project root to sync settings and services."}
+                : launcherReady
+                  ? "The daemon is offline. Click Start daemon — no terminal needed."
+                  : isTauriApp()
+                    ? "Starting DevNest in the background…"
+                    : "Open the DevNest desktop app — everything runs from the UI."}
             </p>
           </div>
 
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+            {!isConnected && launcherReady && (
+              <Button
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={envBusy !== null}
+                onClick={() => runEnvAction("start", startDaemonFromApp)}
+              >
+                <Play className="h-3.5 w-3.5 fill-current" />
+                {envBusy === "start" ? "Starting…" : "Start daemon"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={isConnected ? "outline" : "secondary"}
+              className="w-full sm:w-auto"
+              disabled={!launcherReady || envBusy !== null}
+              onClick={() => runEnvAction("restart", restartEnvironmentFromApp)}
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", envBusy === "restart" && "animate-spin")} />
+              {envBusy === "restart" ? "Restarting…" : "Restart environment"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full sm:w-auto"
+              disabled={!launcherReady || envBusy !== null}
+              onClick={() => runEnvAction("stop", stopEnvironmentFromApp)}
+            >
+              <Square className="h-3.5 w-3.5" />
+              {envBusy === "stop" ? "Stopping…" : "Stop environment"}
+            </Button>
             <Button
               size="sm"
               className="w-full sm:w-auto"
@@ -205,18 +282,19 @@ export function StatusHero({
         />
       </div>
 
-      {!isConnected && <OfflineHelp />}
+      {!isConnected && !launcherReady && <OfflineHelp />}
     </div>
   )
 }
 
 function OfflineHelp() {
-  const [copied, setCopied] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
-  const copyScript = async () => {
-    await copyToClipboard(DEV_SCRIPT)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const retry = async () => {
+    setRetrying(true)
+    await bootstrapDevNest()
+    connectToDaemon()
+    setRetrying(false)
   }
 
   return (
@@ -225,23 +303,19 @@ function OfflineHelp() {
         <AlertCircle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <p className="text-sm font-medium text-foreground">How to connect</p>
-            <ol className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted-foreground list-decimal list-inside">
-              <li>Open a terminal at the DevNest project root</li>
-              <li>Run the dev script (starts daemon + frontend)</li>
-              <li>This page will reconnect automatically via WebSocket</li>
-            </ol>
+            <p className="text-sm font-medium text-foreground">
+              {isTauriApp() ? "Still connecting…" : "Use the DevNest desktop app"}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {isTauriApp()
+                ? "DevNest is starting the control API and daemon automatically. If this takes more than a few seconds, retry below."
+                : "The browser UI needs the DevNest desktop app or background service. Build once with the Desktop page in About, then open DevNest from the Start Menu — no terminal required."}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-mono">
-              <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {DEV_SCRIPT}
-            </code>
-            <Button size="sm" variant="outline" onClick={copyScript}>
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? "Copied" : "Copy command"}
-            </Button>
-          </div>
+          <Button size="sm" variant="outline" disabled={retrying} onClick={retry}>
+            <RefreshCw className={cn("h-3.5 w-3.5", retrying && "animate-spin")} />
+            {retrying ? "Starting…" : "Retry connection"}
+          </Button>
         </div>
       </div>
     </div>
@@ -507,11 +581,8 @@ export function ConnectionPanel({ isConnected }: { isConnected?: boolean }) {
           v{APP_VERSION}
         </Badge>
       </SettingsRow>
-      <SettingsRow
-        label="Dev script"
-        description="Starts daemon and frontend together from project root."
-      >
-        <CopyableCode value={DEV_SCRIPT} />
+      <SettingsRow label="Control API" description="UI starts and stops the daemon — no terminal needed.">
+        <CopyableCode value={LAUNCHER_BASE} />
       </SettingsRow>
       <SettingsRow
         label="Trust local HTTPS certificate"

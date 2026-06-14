@@ -37,6 +37,8 @@ type DevNestConfig struct {
 	IDECommand          string                       `json:"ide_command,omitempty"`
 	DumpWatchIgnored    []string                     `json:"dump_watch_ignored,omitempty"`
 	DebugSessionActive  bool                         `json:"debug_session_active,omitempty"`
+	DNSUseHostsFallback bool                         `json:"dns_use_hosts_fallback,omitempty"`
+	FirstRunCompleted   bool                         `json:"first_run_completed,omitempty"`
 }
 
 type Store struct {

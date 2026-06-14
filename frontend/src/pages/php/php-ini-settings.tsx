@@ -44,6 +44,9 @@ function IniSelect({ value, disabled, options, onValueChange }: IniSelectProps) 
 
 interface PHPIniSettingsProps {
   active: PHPInstallation | undefined
+  installations: PHPInstallation[]
+  editVersion: string
+  onEditVersionChange: (version: string) => void
   directives: PHPDirectives
   dirty: boolean
   phpAvailable: boolean
@@ -53,16 +56,21 @@ interface PHPIniSettingsProps {
 
 export function PHPIniSettings({
   active,
+  installations,
+  editVersion,
+  onEditVersionChange,
   directives,
   dirty,
   phpAvailable,
   onChange,
   onApplied,
 }: PHPIniSettingsProps) {
-  const disabled = !active?.ini_path
+  const editingInst =
+    installations.find((i) => i.version === editVersion) ?? active
+  const disabled = !editingInst?.ini_path
 
   const apply = () => {
-    updatePHPIni({ ...directives })
+    updatePHPIni({ ...directives }, editingInst?.version)
     onApplied()
   }
 
@@ -85,12 +93,29 @@ export function PHPIniSettings({
     <SettingsGroup
       title="php.ini settings"
       description={
-        active
-          ? `Editing ${formatPHPVersion(active)} — changes apply to php.ini and reload PHP-CGI.`
-          : "Select an active PHP installation to edit php.ini directives."
+        editingInst
+          ? `Editing ${formatPHPVersion(editingInst)} — per-version php.ini overrides persist in devnest.json.`
+          : "Select a PHP installation to edit php.ini directives."
       }
     >
-      {!active?.ini_path && phpAvailable && (
+      {installations.length > 1 && (
+        <SettingsRow label="PHP version" description="Each installed version can have its own php.ini overrides.">
+          <Select value={editVersion} onValueChange={onEditVersionChange}>
+            <SelectTrigger className={triggerClass}>
+              <SelectValue placeholder="Select version" />
+            </SelectTrigger>
+            <SelectContent>
+              {installations.map((inst) => (
+                <SelectItem key={inst.version} value={inst.version}>
+                  {formatPHPVersion(inst)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsRow>
+      )}
+
+      {!editingInst?.ini_path && phpAvailable && (
         <p className="px-5 py-4 text-sm text-muted-foreground">
           No php.ini found for the active installation. Open the install folder and add a php.ini next to the binary.
         </p>

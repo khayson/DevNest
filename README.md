@@ -2,28 +2,48 @@
 
 Local development orchestrator — mail trap, dump server, `.test` DNS, and a desktop dashboard. Built with Go (daemon), React (UI), and Tauri (desktop shell).
 
-## Quick start
+**License:** [MIT](LICENSE) — free and open source.
 
-**One command (Windows):**
+## Download (recommended)
+
+1. Get the latest **Windows installer** from [GitHub Releases](https://github.com/khayson/DevNest/releases/latest) (`DevNest_*_x64-setup.exe`).
+2. Run the installer and complete the **first-launch setup wizard**.
+3. Pin DevNest from the Start Menu.
+
+Updates: **About → Check for updates** in the desktop app, or download a newer release.
+
+See [DISTRIBUTION.md](DISTRIBUTION.md) for maintainers (signing keys, CI, `latest.json`).
+
+## Quick start (developers)
+
+If you're building from source:
+
+The desktop app automatically:
+
+- Installs a background control service to `%USERPROFILE%\.devnest\bin\`
+- Registers that service at Windows login (so the UI can always start the daemon)
+- Starts the Go daemon when you open DevNest
+
+**Build the installer locally:**
 
 ```powershell
-.\scripts\dev.ps1
+.\scripts\release.ps1
 ```
 
-**Manual start:**
+**Dev shortcut (builds once if needed):** double-click `scripts\Open-DevNest.vbs`.
 
-```powershell
-# Terminal 1 — daemon
-cd backend
-go run . daemon
+### Manage the environment from the app
 
-# Terminal 2 — UI
-cd frontend
-npm install
-npm run dev
-```
+On **General**:
 
-Open [http://localhost:5173](http://localhost:5173). The dashboard connects to the daemon at `ws://127.0.0.1:9090/ws`.
+- **Start daemon** — when the daemon is offline
+- **Restart environment** — same as stop-daemon + start (full reset)
+- **Stop environment** — stops daemon, Caddy, mail, dump, and PHP ports
+- **Start all / Stop all** — individual services inside a running daemon
+
+### Optional: developers
+
+Contributors can still use scripts (`dev.ps1`, `dev-tauri.ps1`) or CLI (`devnest start|stop|status`).
 
 ## Test mail capture
 
@@ -66,7 +86,7 @@ With the daemon running:
 
 DevNest runs a tiny DNS server on **127.0.0.1:53** that resolves any `*.test` hostname to **127.0.0.1**. That lets you open `https://myapp.test` in the browser without editing `hosts` for every site — Caddy then terminates TLS and proxies to your app.
 
-On Windows, binding port 53 often requires **admin** (or another DNS already using that port). If DNS shows as stopped, run the daemon elevated or configure your system to use `127.0.0.1` as DNS for `.test` zones.
+On Windows, binding port 53 often requires **admin** (or another DNS already using that port). If DNS shows as stopped, DevNest automatically falls back to writing `127.0.0.1` entries in your system **hosts file** for each registered `*.test` site (including aliases). You can also run the daemon elevated if you prefer DNS on port 53.
 
 ## Desktop app (Tauri)
 
@@ -107,8 +127,10 @@ Open the **Databases** tab to start/stop servers, copy connection strings, scan 
 | Service | Default port | Connection (local dev) |
 |---------|--------------|------------------------|
 | MySQL | 3306 | `mysql://root@127.0.0.1:3306/devnest` |
+| MariaDB | 3307 | `mysql://root@127.0.0.1:3307/devnest` |
 | PostgreSQL | 5432 | `postgresql://devnest@127.0.0.1:5432/devnest` |
 | Redis | 6379 | `redis://127.0.0.1:6379` |
+| Valkey | 6380 | `redis://127.0.0.1:6380` |
 
 If you use XAMPP, MySQL is usually detected automatically at `C:\xampp\mysql\bin\mysqld.exe`. Restart the daemon after installing database binaries.
 
@@ -162,6 +184,12 @@ Then open the **Mail** tab in the dashboard.
 | Queue workers (per-site queue:work) | Live — reads QUEUE_CONNECTION from .env |
 | Task scheduler (per-site schedule:work) | Live — run now via schedule:run |
 | Node.js discovery + npm run dev per site | Live — Vite/frontend projects with dev script |
+| Installs tab — download Caddy, Node, cloudflared, MariaDB | Live (Windows) |
+| `devnest.yml` site manifest (import on link/park) | Live |
+| Laravel Forge integration + MCP (Cursor stdio) | Live |
+| Per-version php.ini overrides | Live |
+| `devnest start` / `stop` / `status` CLI | Live |
+| Hosts-file fallback when DNS :53 unavailable | Live |
 
 ## Project layout
 

@@ -55,7 +55,7 @@ func syncPHPPoolFromSites(autostart bool) {
 		}
 	}
 
-	applyPersistedPHPIni(primary.IniPath)
+	applyPersistedPHPIni(primary.IniPath, primary.Version)
 
 	srv, err := globalPHPPool.EnsurePrimary(primary, autostart)
 	if err != nil {
@@ -79,11 +79,14 @@ func syncPHPPoolFromSites(autostart bool) {
 	}
 }
 
-func applyPersistedPHPIni(iniPath string) {
+func applyPersistedPHPIni(iniPath, version string) {
 	if iniPath == "" || cfgStore == nil {
 		return
 	}
 	directives := cfgStore.GetPHPIniDirectives()
+	for k, v := range cfgStore.GetPHPVersionDirectives(version) {
+		directives[k] = v
+	}
 	if len(directives) == 0 {
 		return
 	}
@@ -123,6 +126,15 @@ func buildPHPSyncPayload() map[string]interface{} {
 	payload["active_path"] = inst.Binary
 	payload["ini_path"] = inst.IniPath
 	payload["directives"] = php.ReadDirectives(inst.IniPath)
+	if versionDirectives := cfgStore.GetPHPVersionDirectives(inst.Version); len(versionDirectives) > 0 {
+		merged := payload["directives"].(map[string]string)
+		for k, v := range versionDirectives {
+			merged[k] = v
+		}
+	}
+	if cfg.PHPVersionDirectives != nil {
+		payload["version_directives"] = cfg.PHPVersionDirectives
+	}
 	payload["extensions"] = php.ExtensionStates(inst.IniPath)
 	return payload
 }
@@ -154,7 +166,7 @@ func restartPHPService(inst php.Installation) {
 		wasRunning = state == service.StateRunning
 	}
 
-	applyPersistedPHPIni(inst.IniPath)
+	applyPersistedPHPIni(inst.IniPath, inst.Version)
 	srv, err := globalPHPPool.EnsurePrimary(inst, wasRunning)
 	if err != nil {
 		log.Printf("[Daemon] PHP restart error: %v", err)
@@ -216,9 +228,19 @@ func handleUpdatePHPIni(payload map[string]interface{}) {
 	}
 	installs := php.DiscoverInstallations()
 	cfg := cfgStore.GetConfig()
-	inst, ok := php.PickInstallation(installs, cfg.ActivePHPVersion, cfgStore.GetActivePHPPath())
+	targetVersion, _ := payload["version"].(string)
+	if targetVersion == "" {
+		targetVersion = cfg.ActivePHPVersion
+	}
+	inst, ok := php.PickInstallation(installs, targetVersion, cfgStore.GetActivePHPPath())
+	if targetVersion != "" && targetVersion != cfg.ActivePHPVersion {
+		if pinned, pinnedOK := php.PickInstallation(installs, targetVersion, ""); pinnedOK {
+			inst = pinned
+			ok = true
+		}
+	}
 	if !ok || inst.IniPath == "" {
-		log.Println("[Daemon] update_php_ini: no active PHP with php.ini")
+		log.Println("[Daemon] update_php_ini: no PHP with php.ini for version", targetVersion)
 		return
 	}
 
@@ -239,16 +261,19 @@ func handleUpdatePHPIni(payload map[string]interface{}) {
 		}
 	}
 	if len(updates) > 0 {
-		if err := cfgStore.UpdatePHPIniDirectives(updates); err != nil {
-			log.Printf("[Daemon] Failed to persist php.ini directives: %v", err)
+		if inst.Version == cfg.ActivePHPVersion {
+			if err := cfgStore.UpdatePHPIniDirectives(updates); err != nil {
+				log.Printf("[Daemon] Failed to persist php.ini directives: %v", err)
+			}
+		}
+		if err := cfgStore.UpdatePHPVersionDirectives(inst.Version, updates); err != nil {
+			log.Printf("[Daemon] Failed to persist version php.ini directives: %v", err)
 		}
 	}
 
-	wasRunning := false
-	if globalPHP != nil {
+	if inst.Version == cfg.ActivePHPVersion && globalPHP != nil {
 		state, _ := globalPHP.HealthCheck()
-		wasRunning = state == service.StateRunning
-		if wasRunning {
+		if state == service.StateRunning {
 			_ = globalPHP.Stop()
 			if err := globalPHP.Start(); err != nil {
 				log.Printf("[Daemon] PHP reload after ini change: %v", err)

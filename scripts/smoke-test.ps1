@@ -62,6 +62,30 @@ Test-Port "Caddy admin" "127.0.0.1" 2019 -Optional | Out-Null
 Write-Host ""
 Write-Host "--- HTTP checks ---" -ForegroundColor Cyan
 Test-Http "Caddy admin API" "http://127.0.0.1:2019/config/" -Optional | Out-Null
+Test-Http "DevNest API info" "http://127.0.0.1:9090/api/info" | Out-Null
+Test-Http "DevNest services API" "http://127.0.0.1:9090/api/services" | Out-Null
+
+Write-Host ""
+Write-Host "--- CLI ---" -ForegroundColor Cyan
+$devnestExe = Join-Path $Root "backend\devnest.exe"
+if (-not (Test-Path $devnestExe)) {
+    Push-Location (Join-Path $Root "backend")
+    go build -o devnest.exe . 2>&1 | Out-Null
+    Pop-Location
+}
+if (Test-Path $devnestExe) {
+    & $devnestExe status 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[PASS] devnest status" -ForegroundColor Green
+        $Pass++
+    } else {
+        Write-Host "[FAIL] devnest status" -ForegroundColor Red
+        $Fail++
+    }
+} else {
+    Write-Host "[WARN] devnest.exe not built" -ForegroundColor Yellow
+    $Warn++
+}
 
 # 2. Mail capture
 Write-Host ""

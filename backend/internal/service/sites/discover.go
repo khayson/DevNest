@@ -18,6 +18,7 @@ type DiscoveredSite struct {
 	Port              int    `json:"port"`
 	Type              string `json:"type"`
 	AlreadyRegistered bool   `json:"already_registered"`
+	HasDevnestYml     bool   `json:"has_devnest_yml"`
 }
 
 // ScanParkedPath lists importable projects in immediate subfolders of root.
@@ -69,6 +70,7 @@ func ScanParkedPath(root string, existing []string) []DiscoveredSite {
 			Type:   siteType,
 			AlreadyRegistered: existingDomains[domain] ||
 				existingPaths[filepath.Clean(projectPath)],
+			HasDevnestYml: fileExists(filepath.Join(projectPath, "devnest.yml")),
 		}
 		out = append(out, discovered)
 	}

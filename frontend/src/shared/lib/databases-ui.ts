@@ -1,7 +1,7 @@
 import { formatBytes } from "@/shared/store/databases"
 import type { SQLiteFile } from "@/shared/store/databases"
 
-export type DbEngine = "mysql" | "postgres" | "sqlite"
+export type DbEngine = "mysql" | "postgres" | "sqlite" | "mariadb" | "valkey"
 
 export interface ExplorerDatabase {
   id: string
@@ -21,8 +21,12 @@ export function engineLabel(engine: DbEngine) {
   switch (engine) {
     case "mysql":
       return "MySQL"
+    case "mariadb":
+      return "MariaDB"
     case "postgres":
       return "PostgreSQL"
+    case "valkey":
+      return "Valkey"
     case "sqlite":
       return "SQLite"
   }

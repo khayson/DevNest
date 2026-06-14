@@ -19,9 +19,7 @@ func SetLaunchOnStartup(enable bool) error {
 	}
 
 	if enable {
-		// Run command: reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v DevNest /t REG_SZ /d "\"C:\path\to\devnest.exe\" daemon" /f
-		// Ensure quotes around path in case it contains spaces
-		cmdValue := fmt.Sprintf(`"%s" daemon`, execPath)
+		cmdValue := fmt.Sprintf(`"%s" launcher`, execPath)
 		cmd := exec.Command("reg", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "DevNest", "/t", "REG_SZ", "/d", cmdValue, "/f")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to add startup registry key: %s (error: %w)", string(output), err)

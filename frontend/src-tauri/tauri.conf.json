@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DevNest",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.devnest.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -13,8 +13,11 @@
     "windows": [
       {
         "title": "DevNest",
-        "width": 960,
-        "height": 650,
+        "width": 1100,
+        "height": 720,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
@@ -25,10 +28,26 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/khayson/DevNest/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEMThFNjY0MTU0NDJDQQpSV1RLUWxSQlpvN1JEZ1FQOW54RXZSekkrdmxyODlWL09qQXIrWk0yZTI1a1l4bFdYdWNjSWErTwo=",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "externalBin": ["binaries/devnest"],
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": false,
+    "externalBin": [
+      "binaries/devnest"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

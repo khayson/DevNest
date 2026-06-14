@@ -12,14 +12,28 @@ import {
   Globe,
   Clock,
   HardDrive,
+  RotateCcw,
+  Sparkles,
 } from "lucide-react"
 import { useTelemetryStore } from "../shared/store/telemetry"
+import { useConfigStore } from "../shared/store/config"
 import { useAboutStore, formatUptime, computeLiveUptime } from "../shared/store/about"
 import { APP_VERSION, APP_CHANNEL, STACK } from "../shared/lib/version"
 import { PAGE_META, STATUS_STYLES } from "../shared/lib/navigation"
-import { syncAbout, openPath } from "../shared/api/ws"
+import { syncAbout, openPath, resetFirstRun } from "../shared/api/ws"
+import { checkForAppUpdates, RELEASES_URL } from "../shared/lib/app-updates"
 import { copyToClipboard } from "../shared/lib/mail"
+import { notify } from "../shared/store/notifications"
 import { Badge } from "../shared/ui/badge"
+import { Button } from "../shared/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../shared/ui/dialog"
 import { cn } from "../shared/lib/utils"
 
 const FEATURE_PAGES = [
@@ -72,7 +86,11 @@ function ServiceStateDot({ state }: { state: string }) {
 export function About() {
   const isConnected = useTelemetryStore((state) => state.isConnected)
   const about = useAboutStore((state) => state.about)
+  const config = useConfigStore((state) => state.config)
   const [liveUptime, setLiveUptime] = useState(0)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
 
   useEffect(() => {
     if (!about?.started_at) {
@@ -88,6 +106,24 @@ export function About() {
   const daemonVersion = about?.daemon_version ?? "—"
   const goVersion = about?.go_version?.replace("go", "Go ") ?? "—"
   const platform = about ? `${about.os}/${about.arch}` : "—"
+
+  const handleResetOnboarding = () => {
+    setResetting(true)
+    if (resetFirstRun()) {
+      notify.success("Setup wizard reset", "The onboarding flow will appear again.", "system")
+      setResetOpen(false)
+    }
+    setResetting(false)
+  }
+
+  const handleCheckUpdates = async () => {
+    setCheckingUpdate(true)
+    const result = await checkForAppUpdates()
+    setCheckingUpdate(false)
+    if (result.status === "unavailable") {
+      notify.error("Update check failed", result.message, "system")
+    }
+  }
 
   return (
     <motion.div
@@ -347,6 +383,72 @@ export function About() {
 
         <hr className="border-zinc-200 dark:border-zinc-800" />
 
+        {/* Setup & updates */}
+        <div className="space-y-4">
+          <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Setup & updates</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300">
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="font-semibold text-zinc-800 dark:text-zinc-200">First-launch wizard</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {config?.first_run_completed
+                      ? "Completed — re-run setup to walk through installs again."
+                      : "Finish the wizard when it appears on launch."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={!isConnected}
+                onClick={() => setResetOpen(true)}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset onboarding
+              </Button>
+            </div>
+            <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300">
+                  <RefreshCw className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="font-semibold text-zinc-800 dark:text-zinc-200">Updates</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    DevNest is free & open source (MIT). Check for updates or download the latest installer.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={checkingUpdate}
+                  onClick={() => void handleCheckUpdates()}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", checkingUpdate && "animate-spin")} />
+                  {checkingUpdate ? "Checking…" : "Check for updates"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="w-full text-xs" asChild>
+                  <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+                    Download from GitHub Releases
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr className="border-zinc-200 dark:border-zinc-800" />
+
         {/* Stack */}
         <div className="space-y-4">
           <h3 className="text-base font-bold text-zinc-800 dark:text-zinc-200">Built with</h3>
@@ -370,6 +472,25 @@ export function About() {
           </span>
         </div>
       </div>
+
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset onboarding?</DialogTitle>
+            <DialogDescription>
+              The setup wizard will appear again on your next visit. Your sites, installs, and services are not removed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setResetOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={resetting} onClick={handleResetOnboarding}>
+              {resetting ? "Resetting…" : "Reset wizard"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   )
 }

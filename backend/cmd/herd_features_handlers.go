@@ -12,6 +12,7 @@ import (
 	"devnest/internal/service/rustfs"
 	"devnest/internal/service/sites"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -279,7 +280,7 @@ func handleToggleDumpWatch(payload map[string]interface{}) {
 func handleCloneService(payload map[string]interface{}) {
 	sourceID, _ := payload["source_id"].(string)
 	newID, _ := payload["new_id"].(string)
-	if sourceID == "" || newID == "" || globalManager == nil {
+	if sourceID == "" || newID == "" || globalManager == nil || cfgStore == nil {
 		return
 	}
 	srv, ok := globalManager.GetService(sourceID)
@@ -287,21 +288,118 @@ func handleCloneService(payload map[string]interface{}) {
 		broadcastEvent("service_clone_result", map[string]interface{}{"success": false, "message": "source service not found"})
 		return
 	}
-	// Clone is metadata-only: copy custom port mapping if present.
+
+	home, _ := os.UserHomeDir()
+	dataRoot := filepath.Join(home, ".devnest", "data")
+	dataSubdirs := map[string]string{
+		"mysql": "mysql", "mariadb": "mariadb", "redis": "redis", "valkey": "valkey",
+	}
+	if sub, ok := dataSubdirs[sourceID]; ok {
+		src := filepath.Join(dataRoot, sub)
+		dst := filepath.Join(dataRoot, newID)
+		if err := copyServiceDataDir(src, dst); err != nil {
+			broadcastEvent("service_clone_result", map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+	}
+
 	cfg := cfgStore.GetConfig()
 	if cfg.CustomPorts == nil {
 		cfg.CustomPorts = map[string]int{}
 	}
+	basePort := defaultPortForService(sourceID)
 	if port, exists := cfg.CustomPorts[sourceID]; exists {
-		cfg.CustomPorts[newID] = port + 1
+		basePort = port
 	}
+	cfg.CustomPorts[newID] = basePort + 1
 	_ = cfgStore.Save()
+
 	broadcastEvent("service_clone_result", map[string]interface{}{
 		"success":   true,
 		"source_id": sourceID,
 		"new_id":    newID,
-		"note":      "Port mapping cloned — restart daemon to apply cloned service " + srv.Name(),
+		"port":      cfg.CustomPorts[newID],
+		"note":      "Data directory cloned — restart daemon to register cloned service " + srv.Name(),
 	})
+}
+
+func defaultPortForService(id string) int {
+	switch id {
+	case "mariadb":
+		return database.DefaultMariaDBPort
+	case "valkey":
+		return database.DefaultValkeyPort
+	case "redis":
+		return database.DefaultRedisPort
+	case "postgres":
+		return database.DefaultPostgresPort
+	default:
+		return database.DefaultMySQLPort
+	}
+}
+
+func copyServiceDataDir(src, dst string) error {
+	if st, err := os.Stat(src); err != nil || !st.IsDir() {
+		return fmt.Errorf("source data dir missing: %s", src)
+	}
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+}
+
+func handleLinkForgeSite(payload map[string]interface{}) {
+	if cfgStore == nil {
+		return
+	}
+	domain, _ := payload["domain"].(string)
+	forgeSiteID, _ := payload["forge_site_id"].(float64)
+	if domain == "" || forgeSiteID <= 0 {
+		broadcastEvent("forge_result", map[string]interface{}{"success": false, "message": "domain and forge_site_id required"})
+		return
+	}
+	if err := cfgStore.SetForgeSiteID(domain, int(forgeSiteID)); err != nil {
+		broadcastEvent("forge_result", map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	if site, ok := cfgStore.GetSite(domain); ok {
+		_ = config.WriteDevnestYml(site.Path, config.DevnestYmlFromSiteEntry(site))
+	}
+	broadcastSites()
+	broadcastEvent("forge_result", map[string]interface{}{"success": true, "domain": domain, "forge_site_id": int(forgeSiteID)})
+}
+
+func handleCompleteFirstRun() {
+	if cfgStore == nil {
+		return
+	}
+	_ = cfgStore.SetFirstRunCompleted(true)
+	broadcastEvent("config_update", map[string]interface{}{"config": cfgStore.GetConfig()})
+}
+
+func handleResetFirstRun() {
+	if cfgStore == nil {
+		return
+	}
+	_ = cfgStore.SetFirstRunCompleted(false)
+	broadcastEvent("config_update", map[string]interface{}{"config": cfgStore.GetConfig()})
 }
 
 func handleUpdateIDECommand(payload map[string]interface{}) {

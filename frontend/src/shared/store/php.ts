@@ -28,6 +28,7 @@ export interface PHPSyncPayload {
   active_path?: string
   ini_path?: string
   directives: PHPDirectives
+  version_directives?: Record<string, PHPDirectives>
   extensions?: PHPExtensionState[]
   php_available: boolean
   cgi_port: number

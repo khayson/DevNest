@@ -12,6 +12,7 @@ import { useSchedulerStore, type SchedulerSyncPayload } from "../store/scheduler
 import { useWorkerOutputStore, type WorkerOutputLine } from "../store/worker-output";
 import { useNodeStore, type NodeSyncPayload } from "../store/node";
 import { notify } from "../store/notifications";
+import { useOnboardingStore } from "../store/onboarding";
 import { checkPendingServiceStarts } from "../lib/service-actions";
 
 let ws: WebSocket | null = null;
@@ -53,6 +54,7 @@ export function connectToDaemon() {
     ws?.send(JSON.stringify({ type: "command", command: "get_queues", payload: {} }));
     ws?.send(JSON.stringify({ type: "command", command: "get_scheduler", payload: {} }));
     ws?.send(JSON.stringify({ type: "command", command: "get_node", payload: {} }));
+    ws?.send(JSON.stringify({ type: "command", command: "get_config", payload: {} }));
 
     if (hasConnectedBefore) {
       notify.info("Daemon reconnected", "Connection to DevNest orchestrator restored.", "system");
@@ -259,6 +261,7 @@ export function connectToDaemon() {
       } else if (payload.event === "trust_ca_result") {
         const success = Boolean(payload.success);
         const message = (payload.message as string) ?? "";
+        useOnboardingStore.getState().setCATrust({ success, message });
         if (success) {
           notify.success("Certificate trusted", message, "system");
         } else if (message) {
@@ -276,6 +279,7 @@ export function connectToDaemon() {
       } else if (payload.event === "php_install_result") {
         const success = Boolean(payload.success);
         const message = (payload.message as string) ?? "";
+        useOnboardingStore.getState().setPHPInstall({ success, message });
         if (success) {
           notify.success("PHP installed", message || "Refresh the PHP tab to use the new version.", "system");
           syncPHP();
@@ -314,6 +318,36 @@ export function connectToDaemon() {
         } else if (success) {
           notify.success("Forge", "Settings saved", "system")
         }
+        if (success) syncSites()
+      } else if (payload.event === "forge_sites_sync") {
+        if (Array.isArray(payload.sites)) {
+          useConfigStore.getState().setForgeSites(
+            payload.sites as { id: number; name: string; directory: string }[]
+          )
+        }
+      } else if (payload.event === "runtime_install_result") {
+        const success = Boolean(payload.success)
+        const message = (payload.message as string) ?? ""
+        const runtime = (payload.result as { name?: string })?.name ?? ""
+        useOnboardingStore.getState().setRuntimeInstall({ success, message, runtime })
+        if (success) {
+          notify.success("Runtime installed", message || "Restart the daemon if needed.", "system")
+        } else if (message) {
+          notify.error("Install failed", message, "system")
+        }
+      } else if (payload.event === "hosts_fallback") {
+        if (payload.active) {
+          notify.info("DNS fallback", "Using hosts file for *.test domains", "system")
+        }
+      } else if (payload.event === "hosts_fallback_result") {
+        const success = Boolean(payload.success)
+        const message = (payload.message as string) ?? ""
+        useOnboardingStore.getState().setHostsFallback({ success, message })
+        if (success) {
+          notify.success("Hosts sync enabled", message, "system")
+        } else if (message) {
+          notify.error("Hosts sync failed", message, "system")
+        }
       } else if (payload.event === "db_open_result") {
         const success = Boolean(payload.success);
         const message = (payload.message as string) ?? "";
@@ -349,39 +383,54 @@ export function connectToDaemon() {
   };
 }
 
-export function sendCommand(command: string, payload: Record<string, unknown> = {}): boolean {
+export interface SendCommandOptions {
+  /** Skip error toast when daemon is offline (sync/polling commands). */
+  silent?: boolean;
+}
+
+export function sendCommand(
+  command: string,
+  payload: Record<string, unknown> = {},
+  options?: SendCommandOptions
+): boolean {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "command", command, payload }));
     return true;
   }
-  notify.error("Command failed", "Daemon is offline — start it with go run . daemon", "system");
+  if (!options?.silent) {
+    notify.error("Command failed", "Daemon is offline — use Start daemon on the General page", "system");
+  }
   console.warn("[Daemon] Cannot send command, WebSocket not connected.");
   return false;
 }
 
+function syncSend(command: string, payload: Record<string, unknown> = {}): boolean {
+  return sendCommand(command, payload, { silent: true });
+}
+
 export function syncMailInbox(): boolean {
-  return sendCommand("get_mail_inbox");
+  return syncSend("get_mail_inbox");
 }
 
 export function syncDumpInbox(): boolean {
-  return sendCommand("get_dump_inbox");
+  return syncSend("get_dump_inbox");
 }
 
 export function syncSites(): boolean {
   useSitesStore.getState().setLoading(true)
-  return sendCommand("get_sites")
+  return syncSend("get_sites")
 }
 
 export function syncLogInbox(): boolean {
-  return sendCommand("get_log_inbox");
+  return syncSend("get_log_inbox");
 }
 
 export function syncPHP(): boolean {
-  return sendCommand("get_php");
+  return syncSend("get_php");
 }
 
 export function syncDatabases(): boolean {
-  return sendCommand("scan_databases");
+  return syncSend("scan_databases");
 }
 
 export function fetchDBSchema(payload: {
@@ -439,7 +488,7 @@ export function mutateDBRow(payload: {
 }
 
 export function syncStacks(): boolean {
-  return sendCommand("get_stacks");
+  return syncSend("get_stacks");
 }
 
 export function scanStack(rootPath: string): boolean {
@@ -523,8 +572,8 @@ export function setActivePHP(path: string): boolean {
   return sendCommand("set_active_php", { path });
 }
 
-export function updatePHPIni(directives: Record<string, string>): boolean {
-  return sendCommand("update_php_ini", directives);
+export function updatePHPIni(directives: Record<string, string>, version?: string): boolean {
+  return sendCommand("update_php_ini", { ...directives, version: version ?? "" });
 }
 
 export function clearLogInbox(): boolean {
@@ -667,4 +716,32 @@ export function updateForge(payload: { api_token?: string; server_id?: number; s
 
 export function forgeDeploy(forgeSiteId: number): boolean {
   return sendCommand("forge_deploy", { forge_site_id: forgeSiteId })
+}
+
+export function forgeListSites(): boolean {
+  return sendCommand("forge_list_sites", {})
+}
+
+export function linkForgeSite(domain: string, forgeSiteId: number): boolean {
+  return sendCommand("link_forge_site", { domain, forge_site_id: forgeSiteId })
+}
+
+export function installRuntime(runtime: string): boolean {
+  return sendCommand("install_runtime", { runtime })
+}
+
+export function completeFirstRun(): boolean {
+  return sendCommand("complete_first_run", {})
+}
+
+export function resetFirstRun(): boolean {
+  return sendCommand("reset_first_run", {})
+}
+
+export function syncConfig(): boolean {
+  return syncSend("get_config", {})
+}
+
+export function enableHostsFallback(): boolean {
+  return sendCommand("enable_hosts_fallback", {})
 }

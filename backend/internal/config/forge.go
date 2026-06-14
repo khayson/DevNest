@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // GetForge returns a copy of Forge integration settings.
 func (s *Store) GetForge() ForgeSettings {
 	s.mu.RLock()
@@ -104,4 +106,32 @@ func (s *Store) DebugSessionActive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.data.DebugSessionActive
+}
+
+func (s *Store) SetDNSUseHostsFallback(enabled bool) error {
+	s.mu.Lock()
+	s.data.DNSUseHostsFallback = enabled
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetForgeSiteID(domain string, forgeSiteID int) error {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	s.mu.Lock()
+	for i, site := range s.data.Sites {
+		if site.Domain == domain {
+			s.data.Sites[i].ForgeSiteID = forgeSiteID
+			s.mu.Unlock()
+			return s.Save()
+		}
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Store) SetFirstRunCompleted(done bool) error {
+	s.mu.Lock()
+	s.data.FirstRunCompleted = done
+	s.mu.Unlock()
+	return s.Save()
 }

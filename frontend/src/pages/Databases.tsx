@@ -41,9 +41,13 @@ export function Databases() {
   const [mobilePane, setMobilePane] = useState<"tree" | "data">("tree")
 
   const mysql = dbServices.find((d) => d.id === "mysql")
+  const mariadb = dbServices.find((d) => d.id === "mariadb")
   const postgres = dbServices.find((d) => d.id === "postgres")
+  const valkey = dbServices.find((d) => d.id === "valkey")
   const mysqlRunning = rawServices["mysql"]?.state === "running"
+  const mariadbRunning = rawServices["mariadb"]?.state === "running"
   const postgresRunning = rawServices["postgres"]?.state === "running"
+  const valkeyRunning = rawServices["valkey"]?.state === "running"
 
   const sqliteDbs = useMemo(() => sqliteExplorerDatabases(sqliteFiles), [sqliteFiles])
   const serverDbNames = engine === "mysql" ? mysqlDatabases : postgresDatabases
@@ -52,8 +56,9 @@ export function Databases() {
 
   const selection: TableSelection | null = useMemo(() => {
     if (!selectedDatabase || !selectedTable) return null
+    if (engine === "mariadb" || engine === "valkey") return null
     return {
-      engine,
+      engine: engine as "mysql" | "postgres" | "sqlite",
       database: selectedDatabase,
       sqlite_path: engine === "sqlite" ? selectedDatabase : undefined,
       table: selectedTable,
@@ -61,8 +66,26 @@ export function Databases() {
   }, [engine, selectedDatabase, selectedTable])
 
   const selectedSqlite = sqliteFiles.find((f) => f.path === selectedDatabase)
-  const activeServer = engine === "mysql" ? mysql : engine === "postgres" ? postgres : null
-  const serverRunning = engine === "mysql" ? mysqlRunning : postgresRunning
+  const activeServer =
+    engine === "mysql"
+      ? mysql
+      : engine === "mariadb"
+        ? mariadb
+        : engine === "postgres"
+          ? postgres
+          : engine === "valkey"
+            ? valkey
+            : null
+  const serverRunning =
+    engine === "mysql"
+      ? mysqlRunning
+      : engine === "mariadb"
+        ? mariadbRunning
+        : engine === "postgres"
+          ? postgresRunning
+          : engine === "valkey"
+            ? valkeyRunning
+            : false
 
   const selectedDbLabel = useMemo(() => {
     const db = databases.find((d) => d.id === selectedDatabase)
@@ -184,7 +207,7 @@ export function Databases() {
 
   const toggleServer = () => {
     sendCommand(rawServices[engine]?.state === "running" ? "stop_service" : "start_service", {
-      serviceId: engine,
+      serviceId: engine === "mariadb" ? "mariadb" : engine === "valkey" ? "valkey" : engine,
     })
   }
 

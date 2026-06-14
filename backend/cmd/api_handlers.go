@@ -6,10 +6,24 @@ import (
 	"strings"
 )
 
+var requestDaemonShutdown func()
+
 func registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/services", handleAPIServices)
 	mux.HandleFunc("/api/services/", handleAPIServiceAction)
 	mux.HandleFunc("/api/info", handleAPIInfo)
+	mux.HandleFunc("/api/shutdown", handleAPIShutdown)
+}
+
+func handleAPIShutdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "message": "shutting down"})
+	if requestDaemonShutdown != nil {
+		go requestDaemonShutdown()
+	}
 }
 
 func handleAPIInfo(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +34,7 @@ func handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"name":    "devnest",
 		"version": "1.0.0",
+		"launcher": "http://127.0.0.1:9089",
 		"mcp": map[string]interface{}{
 			"http":     "http://127.0.0.1:9090/mcp",
 			"stdio":    "devnest mcp",

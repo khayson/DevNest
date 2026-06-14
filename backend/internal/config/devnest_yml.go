@@ -66,14 +66,15 @@ func SiteEntryFromDevnestYml(projectPath string, file DevnestProjectFile) SiteEn
 		port = 8000
 	}
 	return normalizeSiteEntry(SiteEntry{
-		Name:       name,
-		Domain:     domain,
-		Path:       filepath.Clean(projectPath),
-		Port:       port,
-		TLS:        tls,
-		PHPVersion: strings.TrimSpace(file.PHP),
-		Aliases:    file.Aliases,
-		Group:      file.Group,
+		Name:        name,
+		Domain:      domain,
+		Path:        filepath.Clean(projectPath),
+		Port:        port,
+		TLS:         tls,
+		PHPVersion:  strings.TrimSpace(file.PHP),
+		Aliases:     file.Aliases,
+		Group:       file.Group,
+		ForgeSiteID: file.ForgeSiteID,
 	})
 }
 
@@ -81,13 +82,14 @@ func SiteEntryFromDevnestYml(projectPath string, file DevnestProjectFile) SiteEn
 func DevnestYmlFromSiteEntry(entry SiteEntry) DevnestProjectFile {
 	tls := entry.TLS
 	return DevnestProjectFile{
-		Name:    entry.Name,
-		Domain:  entry.Domain,
-		PHP:     entry.PHPVersion,
-		Aliases: entry.Aliases,
-		Group:   entry.Group,
-		TLS:     &tls,
-		Port:    entry.Port,
+		Name:        entry.Name,
+		Domain:      entry.Domain,
+		PHP:         entry.PHPVersion,
+		Aliases:     entry.Aliases,
+		Group:       entry.Group,
+		TLS:         &tls,
+		Port:        entry.Port,
+		ForgeSiteID: entry.ForgeSiteID,
 	}
 }
 
