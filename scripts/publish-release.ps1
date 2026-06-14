@@ -16,7 +16,10 @@ if (-not (Test-Path $BundleDir)) {
     throw "Bundle directory not found: $BundleDir. Run .\scripts\release.ps1 first."
 }
 
-$installer = Get-ChildItem $BundleDir -Filter "DevNest_*_x64-setup.exe" | Select-Object -First 1
+$installer = Get-ChildItem $BundleDir -Filter "DevNest_${Version}_x64-setup.exe" | Select-Object -First 1
+if (-not $installer) {
+    $installer = Get-ChildItem $BundleDir -Filter "DevNest_*_x64-setup.exe" | Sort-Object Name -Descending | Select-Object -First 1
+}
 if (-not $installer) {
     throw "No NSIS installer found in $BundleDir"
 }
