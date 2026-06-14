@@ -1,6 +1,6 @@
 # Create/update GitHub release and upload DevNest installer assets.
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.1.2",
     [string]$BundleDir = "",
     [switch]$Draft
 )

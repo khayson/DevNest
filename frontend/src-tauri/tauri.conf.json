@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DevNest",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.devnest.app",
   "build": {
     "frontendDist": "../dist",
@@ -48,6 +48,11 @@
     "externalBin": [
       "binaries/devnest"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

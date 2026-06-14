@@ -1,5 +1,6 @@
 import { type ReactNode } from "react"
 import { useConfigStore } from "@/shared/store/config"
+import { Toaster } from "@/shared/ui/sonner"
 import { OnboardingWizard } from "./onboarding-wizard"
 
 /**
@@ -17,6 +18,7 @@ export function OnboardingGate({ children }: { children: ReactNode }) {
     <>
       <div className="pointer-events-none select-none opacity-30 blur-[1px]">{children}</div>
       <OnboardingWizard />
+      <Toaster richColors closeButton position="bottom-right" style={{ zIndex: 200 }} />
     </>
   )
 }

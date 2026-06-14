@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowRight,
@@ -39,6 +39,12 @@ import { useStacksStore } from "@/shared/store/stacks"
 import { useTelemetryStore } from "@/shared/store/telemetry"
 import { Button } from "@/shared/ui/button"
 import { cn } from "@/shared/lib/utils"
+import { notify } from "@/shared/store/notifications"
+import {
+  OnboardingActivityLog,
+  type ActivityEntry,
+  type ActivityLevel,
+} from "./onboarding-activity-log"
 
 type StepId =
   | "welcome"
@@ -113,6 +119,23 @@ export function OnboardingWizard() {
   const [finishing, setFinishing] = useState(false)
   const [linkingStack, setLinkingStack] = useState(false)
   const [connectSlow, setConnectSlow] = useState(false)
+  const [bootstrapStatus, setBootstrapStatus] = useState<"idle" | "starting" | "ok" | "partial" | "failed">("idle")
+  const [activity, setActivity] = useState<ActivityEntry[]>([])
+  const logId = useRef(0)
+
+  const logActivity = useCallback((level: ActivityLevel, message: string, toast = false) => {
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    setActivity((prev) => [
+      ...prev.slice(-49),
+      { id: `log-${++logId.current}`, level, message, time },
+    ])
+    if (toast) {
+      if (level === "error") notify.error("Setup", message, "system")
+      else if (level === "warning") notify.warning("Setup", message, "system")
+      else if (level === "success") notify.success("Setup", message, "system")
+      else notify.info("Setup", message, "system")
+    }
+  }, [])
 
   const mysqlInfo = dbServices.find((d) => d.id === "mysql")
   const mariadbInfo = dbServices.find((d) => d.id === "mariadb")
@@ -138,22 +161,50 @@ export function OnboardingWizard() {
 
   useEffect(() => {
     let cancelled = false
-    void bootstrapDevNest().then(() => {
-      if (!cancelled) connectToDaemon()
-    })
-    const slow = window.setTimeout(() => setConnectSlow(true), 12000)
+    setBootstrapStatus("starting")
+    logActivity("info", "Starting background service and Go daemon…")
+    void bootstrapDevNest()
+      .then((status) => {
+        if (cancelled) return
+        if (status.launcher && status.daemon) {
+          setBootstrapStatus("ok")
+          logActivity("success", "Launcher and daemon are online", true)
+        } else if (status.launcher) {
+          setBootstrapStatus("partial")
+          logActivity("warning", "Launcher started; daemon still connecting…", true)
+        } else {
+          setBootstrapStatus("failed")
+          logActivity(
+            "error",
+            "Could not start DevNest background service. Use Continue without connection or restart the app.",
+            true
+          )
+        }
+        connectToDaemon()
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setBootstrapStatus("failed")
+        const msg = err instanceof Error ? err.message : "Bootstrap failed"
+        logActivity("error", msg, true)
+      })
+    const slow = window.setTimeout(() => {
+      setConnectSlow(true)
+      logActivity("warning", "Connection is taking longer than expected…")
+    }, 12000)
     return () => {
       cancelled = true
       window.clearTimeout(slow)
     }
-  }, [])
+  }, [logActivity])
 
   useEffect(() => {
     if (step === "connect" && isConnected) {
+      logActivity("success", "WebSocket connected to daemon")
       const t = window.setTimeout(() => advance("essentials"), 600)
       return () => window.clearTimeout(t)
     }
-  }, [step, isConnected, advance])
+  }, [step, isConnected, advance, logActivity])
 
   useEffect(() => {
     if (step === "services" && runningServices >= 3) {
@@ -162,7 +213,12 @@ export function OnboardingWizard() {
   }, [step, runningServices])
 
   const installEssential = async (id: string, kind: "runtime" | "php") => {
+    if (!isConnected) {
+      logActivity("warning", `Connect to the daemon before installing ${id}`, true)
+      return
+    }
     setInstalling(id)
+    logActivity("info", `Installing ${id}…`)
     if (kind === "php") {
       clearPHPInstall()
       installPHP("8.3.21")
@@ -183,18 +239,26 @@ export function OnboardingWizard() {
     if (!installing) return
     if (installing === "php" && phpInstall) {
       setInstalling(null)
-      if (phpInstall.success) refreshAfterInstall()
+      if (phpInstall.success) {
+        logActivity("success", "PHP installed")
+        refreshAfterInstall()
+      } else {
+        logActivity("error", phpInstall.message ?? "PHP install failed", true)
+      }
     } else if (installing !== "php" && runtimeInstall?.runtime === installing) {
       setInstalling(null)
       if (runtimeInstall.success) {
+        logActivity("success", `${installing} installed`)
         refreshAfterInstall()
         syncDatabases()
         if (installing === "caddy") {
           restartEnvironmentFromApp()
         }
+      } else {
+        logActivity("error", runtimeInstall.message ?? `${installing} install failed`, true)
       }
     }
-  }, [installing, phpInstall, runtimeInstall])
+  }, [installing, phpInstall, runtimeInstall, logActivity])
 
   useEffect(() => {
     if (installing || installQueue.length === 0) return
@@ -232,28 +296,44 @@ export function OnboardingWizard() {
     setAuthBusy("launch")
     const next = { launch_on_startup: true, auto_start_services: true, theme: config?.theme ?? "system" as const }
     updateSettings(next)
-    sendCommand("update_settings", next)
+    if (!sendCommand("update_settings", next)) {
+      logActivity("warning", "Saved locally — daemon offline, settings sync when connected", true)
+    } else {
+      logActivity("success", "Start at sign-in enabled")
+    }
     setAuthBusy(null)
   }
 
   useEffect(() => {
-    if (authBusy === "ca" && caTrust) setAuthBusy(null)
-    if (authBusy === "hosts" && hostsFallback) setAuthBusy(null)
-  }, [authBusy, caTrust, hostsFallback])
+    if (authBusy === "ca" && caTrust) {
+      setAuthBusy(null)
+      if (caTrust.success) logActivity("success", "Local HTTPS certificate trusted")
+      else logActivity("error", caTrust.message ?? "Could not trust certificate", true)
+    }
+    if (authBusy === "hosts" && hostsFallback) {
+      setAuthBusy(null)
+      if (hostsFallback.success) logActivity("success", "Hosts file sync enabled")
+      else logActivity("error", hostsFallback.message ?? "Hosts sync failed", true)
+    }
+  }, [authBusy, caTrust, hostsFallback, logActivity])
 
   const permissionsReady =
     caAuthorized && (hostsAuthorized || hostsFallback?.success) && launchAuthorized
 
   const startServices = async () => {
     setServicesStarted(false)
+    logActivity("info", "Starting all services…")
     if (!isConnected) {
+      logActivity("info", "Daemon offline — bootstrapping first…")
       await bootstrapDevNest()
       connectToDaemon()
       await new Promise((r) => setTimeout(r, 1500))
     }
     if (!sendCommand("start_all")) {
+      logActivity("error", "Could not start services — daemon not connected", true)
       return
     }
+    logActivity("success", "Start all command sent")
   }
 
   useEffect(() => {
@@ -350,7 +430,9 @@ export function OnboardingWizard() {
                   <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                     {isConnected
                       ? "Daemon connected at ws://127.0.0.1:9090"
-                      : "Launching background service and Go daemon. This usually takes a few seconds."}
+                      : bootstrapStatus === "failed"
+                        ? "Background service did not start. Check Activity below or continue without connection."
+                        : "Launching background service and Go daemon. This usually takes a few seconds."}
                   </p>
                 </div>
                 {!isConnected && (
@@ -577,6 +659,8 @@ export function OnboardingWizard() {
             )}
           </AnimatePresence>
         </div>
+
+        <OnboardingActivityLog entries={activity} />
       </motion.div>
     </div>
   )

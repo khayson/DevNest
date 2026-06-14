@@ -2,6 +2,16 @@
 
 All notable changes to DevNest are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.1.2] - 2026-06-14
+
+### Fixed
+- **Updater / NSIS install** — installer stops `devnest.exe` and `DevNest.exe` before overwriting files (fixes “Error opening file for writing” during updates)
+- In-app update stops services before running the installer
+- Onboarding **Activity** log and toast notifications for bootstrap, installs, and errors
+- Toasts visible above the setup wizard during onboarding
+
 ## [0.1.1] - 2026-06-14
 
 ### Fixed
@@ -28,5 +38,6 @@ All notable changes to DevNest are documented here. Format follows [Keep a Chang
 - MariaDB runtime installer, hosts DNS fallback, in-app updater (signed `latest.json`)
 - MIT license, `DISTRIBUTION.md`, GitHub Actions release workflow
 
+[0.1.2]: https://github.com/khayson/DevNest/releases/tag/v0.1.2
 [0.1.1]: https://github.com/khayson/DevNest/releases/tag/v0.1.1
 [0.1.0]: https://github.com/khayson/DevNest/releases/tag/v0.1.0

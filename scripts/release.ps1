@@ -1,6 +1,6 @@
 # Production release build for Windows desktop installer.
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.1.2",
     [switch]$Launch,
     [switch]$SignedUpdates,
     [string]$SigningPassword = ""
