@@ -12,7 +12,6 @@ import {
   Rocket,
   Server,
   Shield,
-  Sparkles,
   Wifi,
 } from "lucide-react"
 import {
@@ -113,6 +112,7 @@ export function OnboardingWizard() {
   const [servicesStarted, setServicesStarted] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [linkingStack, setLinkingStack] = useState(false)
+  const [connectSlow, setConnectSlow] = useState(false)
 
   const mysqlInfo = dbServices.find((d) => d.id === "mysql")
   const mariadbInfo = dbServices.find((d) => d.id === "mariadb")
@@ -135,6 +135,18 @@ export function OnboardingWizard() {
   )
 
   const advance = useCallback((next: StepId) => setStep(next), [])
+
+  useEffect(() => {
+    let cancelled = false
+    void bootstrapDevNest().then(() => {
+      if (!cancelled) connectToDaemon()
+    })
+    const slow = window.setTimeout(() => setConnectSlow(true), 12000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(slow)
+    }
+  }, [])
 
   useEffect(() => {
     if (step === "connect" && isConnected) {
@@ -279,8 +291,8 @@ export function OnboardingWizard() {
         <div className="border-b border-zinc-100 px-6 py-4 dark:border-zinc-800">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/60 dark:text-violet-300">
-                <Sparkles className="h-4 w-4" />
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#FF4433] to-[#D92D20] text-sm font-black text-white shadow-sm">
+                D
               </span>
               <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">DevNest setup</span>
             </div>
@@ -342,9 +354,17 @@ export function OnboardingWizard() {
                   </p>
                 </div>
                 {!isConnected && (
-                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Wifi className="h-3.5 w-3.5" />
-                    Waiting for connection…
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <Wifi className="h-3.5 w-3.5" />
+                      Waiting for connection…
+                    </div>
+                    {connectSlow && (
+                      <Button variant="outline" className="w-full" onClick={() => advance("essentials")}>
+                        Continue without connection
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 )}
                 {isConnected && (

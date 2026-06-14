@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DevNest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.devnest.app",
   "build": {
     "frontendDist": "../dist",
@@ -33,7 +33,7 @@
       "endpoints": [
         "https://github.com/khayson/DevNest/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEMThFNjY0MTU0NDJDQQpSV1RLUWxSQlpvN1JEZ1FQOW54RXZSekkrdmxyODlWL09qQXIrWk0yZTI1a1l4bFdYdWNjSWErTwo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0Qzg0QzBFOTU4Q0M2MEEKUldRS3hveVZEa3pJNUdNMEVtRCt5Z3M3eERneGFEOTVpV3F4RWtDMWRGNnlWd2l0bGRWNm1JWEMK",
       "windows": {
         "installMode": "passive"
       }

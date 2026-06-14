@@ -6,7 +6,7 @@ import {
   Trash2,
   Search,
   HardDrive,
-  Sparkles,
+  ScanSearch,
   Check,
   RefreshCw,
   Download,
@@ -257,7 +257,7 @@ export function Installs() {
         {suggested.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-500" />
+              <ScanSearch className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
               <h2 className="text-base font-bold text-zinc-800 dark:text-zinc-200">
                 Detected on this machine
               </h2>

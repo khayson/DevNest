@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::AppHandle;
+use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Serialize)]

@@ -1,8 +1,9 @@
 # Production release build for Windows desktop installer.
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.1.1",
     [switch]$Launch,
-    [switch]$SignedUpdates
+    [switch]$SignedUpdates,
+    [string]$SigningPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,19 +17,27 @@ $PrivateKey = Join-Path $env:USERPROFILE ".devnest\keys\devnest-updater.key"
 
 Write-Host "==> Building Go daemon sidecar..." -ForegroundColor Cyan
 Push-Location $Backend
-go build -ldflags "-s -w" -o devnest.exe .
+$SidecarBuild = Join-Path $Backend "devnest-sidecar-build.exe"
+go build -ldflags "-s -w" -o $SidecarBuild .
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
 Pop-Location
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-Copy-Item (Join-Path $Backend "devnest.exe") (Join-Path $BinDir $SidecarName) -Force
+Copy-Item $SidecarBuild (Join-Path $BinDir $SidecarName) -Force
+Remove-Item $SidecarBuild -Force -ErrorAction SilentlyContinue
+
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and (Test-Path $PrivateKey)) {
+    $env:TAURI_SIGNING_PRIVATE_KEY = $PrivateKey
+}
 
 if ($SignedUpdates -or $env:TAURI_SIGNING_PRIVATE_KEY) {
-    if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and (Test-Path $PrivateKey)) {
-        $env:TAURI_SIGNING_PRIVATE_KEY = $PrivateKey
-    }
     if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
         Write-Error "SignedUpdates requires TAURI_SIGNING_PRIVATE_KEY or $PrivateKey. Run generate-updater-keys.ps1 first."
+    }
+    if ($SigningPassword) {
+        $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $SigningPassword
+    } else {
+        Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
     }
     Write-Host "==> Building with signed updater artifacts..." -ForegroundColor Green
 }
@@ -39,7 +48,8 @@ npm run build
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
 
 if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-    npx tauri build --config "{`"bundle`":{`"createUpdaterArtifacts`":true}}"
+    $ReleaseConfig = Join-Path $TauriDir "tauri.release.conf.json"
+    npx tauri build --config $ReleaseConfig
 } else {
     Write-Host "==> Building installer (no updater signing — run generate-updater-keys.ps1 for in-app updates)" -ForegroundColor Yellow
     npx tauri build

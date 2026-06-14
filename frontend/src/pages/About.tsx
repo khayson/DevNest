@@ -13,7 +13,7 @@ import {
   Clock,
   HardDrive,
   RotateCcw,
-  Sparkles,
+  Compass,
 } from "lucide-react"
 import { useTelemetryStore } from "../shared/store/telemetry"
 import { useConfigStore } from "../shared/store/config"
@@ -390,7 +390,7 @@ export function About() {
             <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
               <div className="flex items-start gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300">
-                  <Sparkles className="h-4 w-4" />
+                  <Compass className="h-4 w-4" />
                 </span>
                 <div>
                   <p className="font-semibold text-zinc-800 dark:text-zinc-200">First-launch wizard</p>

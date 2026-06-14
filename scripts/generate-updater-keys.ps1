@@ -1,7 +1,8 @@
 # Generate Tauri updater signing keys (run once per machine/org).
 # Private key stays in ~/.devnest/keys/ — NEVER commit it.
 param(
-    [switch]$Force
+    [switch]$Force,
+    [string]$Password = "devnest1234"
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,7 +13,7 @@ $PubDest = Join-Path (Split-Path $PSScriptRoot -Parent) "frontend\src-tauri\upda
 New-Item -ItemType Directory -Force -Path $KeysDir | Out-Null
 
 Push-Location (Join-Path (Split-Path $PSScriptRoot -Parent) "frontend")
-$args = @("signer", "generate", "--ci", "-w", $KeyPath)
+$args = @("signer", "generate", "-w", $KeyPath, "-p", $Password)
 if ($Force) { $args += "-f" }
 npx tauri @args
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
@@ -25,5 +26,5 @@ if (-not (Test-Path $PubPath)) {
 Copy-Item $PubPath $PubDest -Force
 Write-Host "Public key written to: $PubDest" -ForegroundColor Green
 Write-Host "Private key (keep secret): $KeyPath" -ForegroundColor Yellow
-Write-Host "Set TAURI_SIGNING_PRIVATE_KEY to that path before release builds." -ForegroundColor Cyan
+Write-Host "Signing password: set TAURI_SIGNING_PRIVATE_KEY_PASSWORD or use release.ps1 -SigningPassword" -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot "sync-updater-pubkey.ps1")

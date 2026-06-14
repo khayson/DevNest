@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest an idea for DevNest
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem and how DevNest could solve it. Herd-like local dev UX is the north star.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      placeholder: I'm trying to … but …
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sites / Caddy / HTTPS
+        - PHP / Node runtimes
+        - Databases
+        - Mail / Dumps / Logs
+        - Onboarding / Desktop app
+        - Services / Daemon
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to test a preview build
+        - label: I'd be willing to open a PR

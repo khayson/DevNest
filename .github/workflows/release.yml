@@ -57,7 +57,7 @@ jobs:
         run: |
           npm run build
           if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-            npx tauri build --config "{`"bundle`":{`"createUpdaterArtifacts`":true}}"
+            npx tauri build --config src-tauri/tauri.release.conf.json
           } else {
             npx tauri build
           }

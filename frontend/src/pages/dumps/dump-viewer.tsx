@@ -6,7 +6,7 @@ import {
   FileText,
   Code2,
   Terminal,
-  Sparkles,
+  Rows3,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { CapturedDump } from "@/shared/store/captured"
@@ -156,7 +156,7 @@ export function DumpViewer({
 
           {html && activeTab === "rendered" && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-              <Sparkles className={cn("h-3.5 w-3.5", pretty ? "text-amber-500" : "opacity-40")} />
+              <Rows3 className={cn("h-3.5 w-3.5", pretty ? "text-zinc-600 dark:text-zinc-300" : "opacity-40")} />
               <span className="font-medium">Pretty</span>
               <Switch checked={pretty} onCheckedChange={setPretty} aria-label="Toggle pretty dump formatting" />
             </label>

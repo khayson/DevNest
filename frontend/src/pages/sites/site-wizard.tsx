@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Sparkles } from "lucide-react"
+import { FolderPlus } from "lucide-react"
 import { createLaravelProject } from "@/shared/api/ws"
 import { notify } from "@/shared/store/notifications"
 import { Button } from "@/shared/ui/button"
@@ -80,7 +80,7 @@ export function SiteWizard({ open, onOpenChange }: SiteWizardProps) {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" />
+            <FolderPlus className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
             New Laravel site
           </DialogTitle>
         </DialogHeader>

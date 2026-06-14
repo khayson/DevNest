@@ -6,7 +6,7 @@ Local development orchestrator — mail trap, dump server, `.test` DNS, and a de
 
 ## Download (recommended)
 
-1. Get the latest **Windows installer** from [GitHub Releases](https://github.com/khayson/DevNest/releases/latest) (`DevNest_*_x64-setup.exe`).
+1. Visit **[devnest.dev](https://devnest.dev)** or get the latest **Windows installer** from [GitHub Releases](https://github.com/khayson/DevNest/releases/latest) (`DevNest_*_x64-setup.exe`).
 2. Run the installer and complete the **first-launch setup wizard**.
 3. Pin DevNest from the Start Menu.
 

@@ -13,7 +13,7 @@ import {
   FolderOpen,
   FolderTree,
   RefreshCw,
-  Sparkles,
+  ScanSearch,
   Server,
   Shield,
   Share2,
@@ -341,7 +341,7 @@ export function Sites() {
                 onClick={() => setWizardOpen(true)}
                 disabled={!isConnected}
               >
-                <Sparkles className="h-4 w-4" />
+                <Plus className="h-4 w-4" />
                 New Laravel
               </Button>
               <Button
@@ -452,7 +452,7 @@ export function Sites() {
             {unparkedSuggestions.length > 0 && (
               <div className="space-y-2 pt-1 border-t border-border">
                 <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                  <ScanSearch className="h-3.5 w-3.5 text-zinc-500" />
                   Detected on this machine
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
