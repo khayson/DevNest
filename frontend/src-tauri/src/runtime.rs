@@ -39,6 +39,23 @@ fn wait_for_port(addr: &str, attempts: u32) -> bool {
   false
 }
 
+fn spawn_process(args: &[&str]) {
+  if let Some(bin) = devnest_home_bin() {
+    if bin.is_file() {
+      let mut cmd = std::process::Command::new(&bin);
+      #[cfg(target_os = "windows")]
+      {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+      }
+      if cmd.args(args).spawn().is_ok() {
+        log::info!("Spawned {:?} from {}", args, bin.display());
+        return;
+      }
+    }
+  }
+}
+
 pub fn spawn_launcher_sidecar(app: &AppHandle) {
   if launcher_running() {
     log::info!("DevNest launcher already on 127.0.0.1:9089");
@@ -47,9 +64,15 @@ pub fn spawn_launcher_sidecar(app: &AppHandle) {
   match app.shell().sidecar("devnest") {
     Ok(sidecar) => match sidecar.args(["launcher"]).spawn() {
       Ok((_rx, child)) => log::info!("Launcher sidecar spawned (pid {:?})", child.pid()),
-      Err(err) => log::warn!("Failed to spawn launcher sidecar: {err}"),
+      Err(err) => {
+        log::warn!("Failed to spawn launcher sidecar: {err}");
+        spawn_process(&["launcher"]);
+      }
     },
-    Err(err) => log::warn!("DevNest sidecar not bundled: {err}"),
+    Err(err) => {
+      log::warn!("DevNest sidecar not bundled: {err}");
+      spawn_process(&["launcher"]);
+    }
   }
 }
 
@@ -61,9 +84,15 @@ pub fn spawn_daemon_sidecar(app: &AppHandle) {
   match app.shell().sidecar("devnest") {
     Ok(sidecar) => match sidecar.args(["daemon"]).spawn() {
       Ok((_rx, child)) => log::info!("Daemon sidecar spawned (pid {:?})", child.pid()),
-      Err(err) => log::warn!("Failed to spawn daemon sidecar: {err}"),
+      Err(err) => {
+        log::warn!("Failed to spawn daemon sidecar: {err}");
+        spawn_process(&["daemon"]);
+      }
     },
-    Err(err) => log::warn!("DevNest sidecar not bundled: {err}"),
+    Err(err) => {
+      log::warn!("DevNest sidecar not bundled: {err}");
+      spawn_process(&["daemon"]);
+    }
   }
 }
 
@@ -87,18 +116,18 @@ fn post_json(host_port: &str, path: &str, body: &str) -> std::io::Result<String>
 pub fn ensure_environment(app: &AppHandle) -> EnvironmentStatus {
   if !launcher_running() {
     spawn_launcher_sidecar(app);
-    wait_for_port("127.0.0.1:9089", 24);
+    wait_for_port("127.0.0.1:9089", 48);
   }
 
   if launcher_running() && !daemon_running() {
     start_daemon_via_launcher();
-    if !wait_for_port("127.0.0.1:9090", 32) {
+    if !wait_for_port("127.0.0.1:9090", 56) {
       spawn_daemon_sidecar(app);
-      wait_for_port("127.0.0.1:9090", 32);
+      wait_for_port("127.0.0.1:9090", 56);
     }
   } else if !daemon_running() {
     spawn_daemon_sidecar(app);
-    wait_for_port("127.0.0.1:9090", 32);
+    wait_for_port("127.0.0.1:9090", 56);
   }
 
   EnvironmentStatus {

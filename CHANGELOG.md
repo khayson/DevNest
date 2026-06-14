@@ -4,6 +4,14 @@ All notable changes to DevNest are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-14
+
+### Fixed
+- Onboarding bootstrap retries for ~35s instead of failing immediately with "Bootstrap failed"
+- Fallback to `~/.devnest/bin/devnest.exe` when the bundled sidecar cannot spawn
+- **Retry connection** button on the Environment step
+- Setup commands no longer show "Command failed" toasts — errors go to the Activity log instead
+
 ## [0.1.2] - 2026-06-14
 
 ### Fixed
@@ -38,6 +46,7 @@ All notable changes to DevNest are documented here. Format follows [Keep a Chang
 - MariaDB runtime installer, hosts DNS fallback, in-app updater (signed `latest.json`)
 - MIT license, `DISTRIBUTION.md`, GitHub Actions release workflow
 
+[0.1.3]: https://github.com/khayson/DevNest/releases/tag/v0.1.3
 [0.1.2]: https://github.com/khayson/DevNest/releases/tag/v0.1.2
 [0.1.1]: https://github.com/khayson/DevNest/releases/tag/v0.1.1
 [0.1.0]: https://github.com/khayson/DevNest/releases/tag/v0.1.0

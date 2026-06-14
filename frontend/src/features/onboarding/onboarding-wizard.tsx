@@ -19,8 +19,6 @@ import {
   completeFirstRun,
   connectToDaemon,
   enableHostsFallback,
-  installPHP,
-  installRuntime,
   sendCommand,
   syncDatabases,
   syncStacks,
@@ -159,44 +157,42 @@ export function OnboardingWizard() {
 
   const advance = useCallback((next: StepId) => setStep(next), [])
 
-  useEffect(() => {
-    let cancelled = false
+  const runBootstrap = useCallback(async () => {
     setBootstrapStatus("starting")
     logActivity("info", "Starting background service and Go daemon…")
-    void bootstrapDevNest()
-      .then((status) => {
-        if (cancelled) return
-        if (status.launcher && status.daemon) {
-          setBootstrapStatus("ok")
-          logActivity("success", "Launcher and daemon are online", true)
-        } else if (status.launcher) {
-          setBootstrapStatus("partial")
-          logActivity("warning", "Launcher started; daemon still connecting…", true)
-        } else {
-          setBootstrapStatus("failed")
-          logActivity(
-            "error",
-            "Could not start DevNest background service. Use Continue without connection or restart the app.",
-            true
-          )
-        }
-        connectToDaemon()
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setBootstrapStatus("failed")
-        const msg = err instanceof Error ? err.message : "Bootstrap failed"
-        logActivity("error", msg, true)
-      })
+    const status = await bootstrapDevNest()
+    if (status.daemon) {
+      setBootstrapStatus("ok")
+      logActivity("success", "Launcher and daemon are online", true)
+    } else if (status.launcher) {
+      setBootstrapStatus("partial")
+      logActivity("warning", status.error ?? "Launcher started; daemon still connecting…", true)
+    } else {
+      setBootstrapStatus("failed")
+      logActivity(
+        "error",
+        status.error ?? "Could not start DevNest background service.",
+        true
+      )
+    }
+    connectToDaemon()
+    return status
+  }, [logActivity])
+
+  useEffect(() => {
+    let cancelled = false
+    void runBootstrap().then(() => {
+      if (cancelled) return
+    })
     const slow = window.setTimeout(() => {
       setConnectSlow(true)
-      logActivity("warning", "Connection is taking longer than expected…")
-    }, 12000)
+      logActivity("warning", "Connection is taking longer than expected — try Retry connection")
+    }, 15000)
     return () => {
       cancelled = true
       window.clearTimeout(slow)
     }
-  }, [logActivity])
+  }, [runBootstrap, logActivity])
 
   useEffect(() => {
     if (step === "connect" && isConnected) {
@@ -221,10 +217,18 @@ export function OnboardingWizard() {
     logActivity("info", `Installing ${id}…`)
     if (kind === "php") {
       clearPHPInstall()
-      installPHP("8.3.21")
+      if (!sendCommand("install_php", { version: "8.3.21" }, { silent: true })) {
+        setInstalling(null)
+        logActivity("error", "Install failed — daemon not connected. Retry connection on Environment step.", true)
+        return
+      }
     } else {
       clearRuntimeInstall()
-      installRuntime(id)
+      if (!sendCommand("install_runtime", { runtime: id }, { silent: true })) {
+        setInstalling(null)
+        logActivity("error", "Install failed — daemon not connected. Retry connection on Environment step.", true)
+        return
+      }
     }
   }
 
@@ -267,10 +271,10 @@ export function OnboardingWizard() {
     setInstalling(next.id)
     if (next.kind === "php") {
       clearPHPInstall()
-      installPHP("8.3.21")
+      sendCommand("install_php", { version: "8.3.21" }, { silent: true })
     } else {
       clearRuntimeInstall()
-      installRuntime(next.id)
+      sendCommand("install_runtime", { runtime: next.id }, { silent: true })
     }
   }, [installing, installQueue, clearPHPInstall, clearRuntimeInstall])
 
@@ -296,7 +300,7 @@ export function OnboardingWizard() {
     setAuthBusy("launch")
     const next = { launch_on_startup: true, auto_start_services: true, theme: config?.theme ?? "system" as const }
     updateSettings(next)
-    if (!sendCommand("update_settings", next)) {
+    if (!sendCommand("update_settings", next, { silent: true })) {
       logActivity("warning", "Saved locally — daemon offline, settings sync when connected", true)
     } else {
       logActivity("success", "Start at sign-in enabled")
@@ -325,11 +329,14 @@ export function OnboardingWizard() {
     logActivity("info", "Starting all services…")
     if (!isConnected) {
       logActivity("info", "Daemon offline — bootstrapping first…")
-      await bootstrapDevNest()
-      connectToDaemon()
-      await new Promise((r) => setTimeout(r, 1500))
+      const status = await runBootstrap()
+      await new Promise((r) => setTimeout(r, 2000))
+      if (!status.daemon) {
+        logActivity("error", "Still offline — use Retry on Environment step, then try again", true)
+        return
+      }
     }
-    if (!sendCommand("start_all")) {
+    if (!sendCommand("start_all", {}, { silent: true })) {
       logActivity("error", "Could not start services — daemon not connected", true)
       return
     }
@@ -441,6 +448,18 @@ export function OnboardingWizard() {
                       <Wifi className="h-3.5 w-3.5" />
                       Waiting for connection…
                     </div>
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      disabled={bootstrapStatus === "starting"}
+                      onClick={() => void runBootstrap()}
+                    >
+                      {bootstrapStatus === "starting" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Retry connection"
+                      )}
+                    </Button>
                     {connectSlow && (
                       <Button variant="outline" className="w-full" onClick={() => advance("essentials")}>
                         Continue without connection

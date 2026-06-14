@@ -19,6 +19,7 @@ export interface EnvironmentStatus {
   launcher: boolean
   daemon: boolean
   installed?: boolean
+  error?: string
 }
 
 export function isTauriApp(): boolean {
@@ -26,19 +27,25 @@ export function isTauriApp(): boolean {
   return "__TAURI_INTERNALS__" in window || "__TAURI__" in window
 }
 
-async function invokeTauri<T>(cmd: string): Promise<T | null> {
+async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   if (!isTauriApp()) return null
   try {
     const { invoke } = await import("@tauri-apps/api/core")
-    return invoke<T>(cmd)
-  } catch {
+    return await invoke<T>(cmd, args)
+  } catch (err) {
+    console.warn(`[Tauri] ${cmd} failed:`, err)
     return null
   }
 }
 
 async function post(path: string): Promise<DaemonControlResult & Record<string, unknown>> {
-  const resp = await fetch(`${LAUNCHER_BASE}${path}`, { method: "POST" })
-  return resp.json()
+  try {
+    const resp = await fetch(`${LAUNCHER_BASE}${path}`, { method: "POST" })
+    return await resp.json()
+  } catch (err) {
+    console.warn(`[Launcher] POST ${path} failed:`, err)
+    return { success: false, message: err instanceof Error ? err.message : "Network error" }
+  }
 }
 
 export async function fetchLauncherHealth(signal?: AbortSignal): Promise<LauncherHealth | null> {
@@ -55,29 +62,62 @@ export async function fetchLauncherHealth(signal?: AbortSignal): Promise<Launche
   }
 }
 
-async function waitForLauncher(maxMs = 12000): Promise<boolean> {
+async function waitForLauncher(maxMs = 20000): Promise<boolean> {
   const start = Date.now()
   while (Date.now() - start < maxMs) {
     const health = await fetchLauncherHealth()
     if (health?.ok) return true
-    await new Promise((r) => setTimeout(r, 300))
+    await new Promise((r) => setTimeout(r, 400))
   }
   return false
 }
 
-/** Bootstraps launcher + daemon without a terminal (desktop app or installed background service). */
-export async function bootstrapDevNest(): Promise<EnvironmentStatus> {
-  if (isTauriApp()) {
-    await invokeTauri<string>("install_background_service_cmd")
+async function waitForDaemon(maxMs = 25000): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < maxMs) {
+    const health = await fetchLauncherHealth()
+    if (health?.daemon_running) return true
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  return false
+}
+
+async function tryStartDaemonViaLauncher(): Promise<boolean> {
+  const health = await fetchLauncherHealth()
+  if (!health?.ok) return false
+  if (health.daemon_running) return true
+  await post("/api/daemon/start")
+  return waitForDaemon(20000)
+}
+
+async function bootstrapViaTauri(): Promise<EnvironmentStatus | null> {
+  await invokeTauri<string>("install_background_service_cmd")
+
+  const deadline = Date.now() + 35000
+  while (Date.now() < deadline) {
     const status = await invokeTauri<EnvironmentStatus>("ensure_environment_cmd")
     if (status?.daemon) {
-      return status
+      return { ...status, installed: status.installed ?? false }
     }
+
+    if (status?.launcher) {
+      const daemonUp = await tryStartDaemonViaLauncher()
+      if (daemonUp) {
+        return { launcher: true, daemon: true, installed: status.installed ?? false }
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 1500))
   }
 
+  const last = await invokeTauri<EnvironmentStatus>("ensure_environment_cmd")
+  return last ? { ...last, installed: last.installed ?? false } : null
+}
+
+async function bootstrapViaHttp(): Promise<EnvironmentStatus> {
   let health = await fetchLauncherHealth()
   if (!health?.ok) {
-    const ready = await waitForLauncher()
+    const ready = await waitForLauncher(20000)
     if (!ready) {
       return { launcher: false, daemon: false }
     }
@@ -85,8 +125,7 @@ export async function bootstrapDevNest(): Promise<EnvironmentStatus> {
   }
 
   if (health?.ok && !health.daemon_running) {
-    await post("/api/daemon/start")
-    await waitForDaemon()
+    await tryStartDaemonViaLauncher()
   }
 
   health = await fetchLauncherHealth()
@@ -96,14 +135,39 @@ export async function bootstrapDevNest(): Promise<EnvironmentStatus> {
   }
 }
 
-async function waitForDaemon(maxMs = 15000): Promise<boolean> {
-  const start = Date.now()
-  while (Date.now() - start < maxMs) {
-    const health = await fetchLauncherHealth()
-    if (health?.daemon_running) return true
-    await new Promise((r) => setTimeout(r, 300))
+/** Bootstraps launcher + daemon without a terminal (desktop app or installed background service). Never throws. */
+export async function bootstrapDevNest(): Promise<EnvironmentStatus> {
+  try {
+    if (isTauriApp()) {
+      const tauriStatus = await bootstrapViaTauri()
+      if (tauriStatus?.daemon) return tauriStatus
+      if (tauriStatus?.launcher) {
+        return { ...tauriStatus, error: "Launcher is running but the daemon did not start in time" }
+      }
+    }
+
+    const httpStatus = await bootstrapViaHttp()
+    if (httpStatus.daemon) return httpStatus
+
+    if (httpStatus.launcher) {
+      return { ...httpStatus, error: "Launcher is running but the daemon did not start in time" }
+    }
+
+    return {
+      launcher: false,
+      daemon: false,
+      error: isTauriApp()
+        ? "Could not start DevNest background service — try Retry on the Environment step"
+        : "DevNest background service is not running",
+    }
+  } catch (err) {
+    console.error("[Bootstrap] unexpected error:", err)
+    return {
+      launcher: false,
+      daemon: false,
+      error: err instanceof Error ? err.message : "Bootstrap failed",
+    }
   }
-  return false
 }
 
 export async function startDaemonFromApp(): Promise<DaemonControlResult> {
